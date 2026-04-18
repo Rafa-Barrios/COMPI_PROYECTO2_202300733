@@ -349,6 +349,12 @@ class CodeGenerator extends GolampiBaseVisitor
             }
         }
 
+        // AGREGAR después del if ($ctx->exprList()) en visitVarDecl:
+        $arrayReg = null;
+        if ($ctx->arrayLiteral() !== null) {
+            $arrayReg = $this->visit($ctx->arrayLiteral());
+        }
+
         foreach ($ids as $i => $id) {
             $varName = $id->getText();
             $line    = $id->getSymbol()->getLine();
@@ -358,8 +364,11 @@ class CodeGenerator extends GolampiBaseVisitor
             $offset = $this->allocStack();
             $this->localVars[$varName] = $offset;
             $this->environment->define($varName, $offset, $line, $col);
-
-            if (isset($values[$i])) {
+            
+            // LÍNEA CORRECTA:
+            if ($arrayReg !== null) {
+                $this->emit("    str     {$arrayReg}, [x29, #{$offset}]   // array {$varName}");
+            } elseif (isset($values[$i])) {
                 // Guardar el registro con el valor en el slot del stack
                 $reg = $values[$i];
                 $this->emit("    str     {$reg}, [x29, #{$offset}]   // var {$varName}");
@@ -587,6 +596,9 @@ class CodeGenerator extends GolampiBaseVisitor
         $this->emit("    mov     x19, {$switchReg}   // switch value");
 
         $labelDefault = null;
+
+        // AGREGAR antes del primer foreach (línea 592):
+        $caseLabels = [];
 
         // ── Generar saltos para cada case ─────────────────────
         foreach ($ctx->caseClause() as $i => $case) {
@@ -1418,14 +1430,19 @@ class CodeGenerator extends GolampiBaseVisitor
             $name    = $ctx->ID()->getText();
             $destReg = $this->nextReg();
 
+            // REEMPLAZAR el bloque completo (líneas 1433-1440) con esto:
             if (!isset($this->localVars[$name])) {
-                \ErrorTable::add(
-                    "Semantico",
-                    "Identificador '$name' no declarado.",
-                    $ctx->ID()->getSymbol()->getLine(),
-                    $ctx->ID()->getSymbol()->getCharPositionInLine()
-                );
-                $this->emit("    mov     {$destReg}, #0   // undefined {$name}");
+                // Verificar si es una función conocida (no reportar error)
+                if (!isset($this->functions[$name])) {
+                    \ErrorTable::add(
+                        "Semantico",
+                        "Identificador '$name' no declarado.",
+                        $ctx->ID()->getSymbol()->getLine(),
+                        $ctx->ID()->getSymbol()->getCharPositionInLine()
+                    );
+                }
+                // Para funciones: no emitir ldr, el bl lo maneja visitPostfix
+                $this->emit("    mov     {$destReg}, #0   // ref a {$name}");
                 return $destReg;
             }
 
@@ -1642,7 +1659,6 @@ class CodeGenerator extends GolampiBaseVisitor
 
                     case "rune":
                         // Imprimir como carácter ASCII via syscall write
-                        $charReg = $this->nextReg();
                         $this->emit("    // print rune (1 byte ASCII)");
                         $this->emit("    sub     sp, sp, #16");
                         $this->emit("    strb    w{$this->regNum($reg)}, [sp]");
