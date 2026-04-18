@@ -58,6 +58,9 @@ class CodeGenerator extends GolampiBaseVisitor
     // ── Lista de funciones declaradas (hoisting) ─────────────
     private $functions = [];
 
+    // Agregar 
+    private $helperCode = "";
+
     /*
     ========================
     CONSTRUCTOR
@@ -67,32 +70,7 @@ class CodeGenerator extends GolampiBaseVisitor
     {
         $this->environment = new Environment();
     }
-
-    /*
-    ========================
-    OBTENER CÓDIGO FINAL
-    ========================
-    */
-    public function getCode(): string
-    {
-        $out  = "// Generado por Golampi Compiler\n\n";
-
-        // Sección de datos (strings)
-        if ($this->dataSection !== "") {
-            $out .= ".section .data\n";
-            $out .= $this->dataSection;
-            $out .= "\n";
-        }
-
-        // Sección de texto
-        $out .= ".section .text\n";
-        $out .= ".align 2\n";
-        $out .= ".global _start\n\n";
-        $out .= $this->code;
-
-        return $out;
-    }
-
+  
     /*
     ========================
     EMITIR LÍNEA DE CÓDIGO
@@ -144,7 +122,7 @@ class CodeGenerator extends GolampiBaseVisitor
         $label = "str_" . ($this->strCounter++);
         // Escapar caracteres especiales para .ascii
         $escaped = addcslashes($str, "\\\"\n\t\r");
-        $this->emitData("{$label}: .ascii \"{$escaped}\\n\"");
+        $this->emitData("{$label}: .ascii \"{$escaped}\"");
         $this->emitData("{$label}_len = . - {$label}");
         return $label;
     }
@@ -220,6 +198,7 @@ class CodeGenerator extends GolampiBaseVisitor
             $this->visitFunctionDecl($funcCtx);
         }
 
+        $this->flushHelpers();
         return null;
     }
 
@@ -297,8 +276,8 @@ class CodeGenerator extends GolampiBaseVisitor
         if ($ctx->parameters() !== null) {
             $paramCount = count($ctx->parameters()->parameter());
         }
-        // Frame mínimo de 32 bytes, alineado a 16
-        $estimatedFrame = max(32, (($paramCount + 8) * 8 + 15) & ~15);
+        // LÍNEA CORRECTA:
+        $estimatedFrame = 512; // frame fijo conservador, alineado a 16
         $this->frameSize = $estimatedFrame;
 
         // ── Emitir etiqueta de la función ──────────────────────
@@ -306,8 +285,10 @@ class CodeGenerator extends GolampiBaseVisitor
         $this->emitLabel($name);
 
         // ── PRÓLOGO ────────────────────────────────────────────
-        $this->emit("    stp     x29, x30, [sp, #-{$this->frameSize}]!");
+        // REEMPLAZAR línea 288 (prólogo completo):
+        $this->emit("    stp     x29, x30, [sp, #-16]!");
         $this->emit("    mov     x29, sp");
+        $this->emit("    sub     sp, sp, #496          // reservar frame local");
 
         // ── Parámetros: cargar de x0..x7 al stack ─────────────
         if ($ctx->parameters() !== null) {
@@ -331,8 +312,10 @@ class CodeGenerator extends GolampiBaseVisitor
         }
 
         // ── EPÍLOGO ───────────────────────────────────────────
+        // REEMPLAZAR línea 314 (epílogo completo):
         $this->emitLabel("{$name}_end");
-        $this->emit("    ldp     x29, x30, [sp], #{$this->frameSize}");
+        $this->emit("    add     sp, sp, #496          // liberar frame local");
+        $this->emit("    ldp     x29, x30, [sp], #16");
         $this->emit("    ret");
         $this->emit("");
 
@@ -871,15 +854,30 @@ class CodeGenerator extends GolampiBaseVisitor
 
             $baseOffset = $this->localVars[$arrName];
 
-            // Evaluar índice
-            $idxReg = $this->visit($leftExpr->index(0)->expression());
+
+
+            // REEMPLAZAR con esto:
+            if (is_numeric($idxText)) {
+                // Índice constante: cargarlo directamente
+                $idxReg = $this->nextReg();
+                $this->emit("    mov     {$idxReg}, #{$idxText}   // índice constante");
+            } elseif (isset($this->localVars[$idxText])) {
+                // Índice es una variable local
+                $idxReg = $this->nextReg();
+                $idxOff = $this->localVars[$idxText];
+                $this->emit("    ldr     {$idxReg}, [x29, #{$idxOff}]   // índice {$idxText}");
+            } else {
+                // Fallback: emitir 0
+                $idxReg = $this->nextReg();
+                $this->emit("    mov     {$idxReg}, #0   // índice desconocido");
+            }
 
             // Calcular dirección: base + index * 8
+            $baseReg = $this->nextReg();
             $addrReg = $this->nextReg();
-            $this->emit("    add     x29, x29, #{$baseOffset}");
-            $this->emit("    add     {$addrReg}, x29, {$idxReg}, lsl #3   // addr array[i]");
-            $this->emit("    sub     x29, x29, #{$baseOffset}");
-
+            $this->emit("    add     {$baseReg}, x29, #{$baseOffset}   // base de {$arrName}");
+            $this->emit("    add     {$addrReg}, {$baseReg}, {$idxReg}, lsl #3   // addr {$arrName}[i]");
+            
             // Aplicar operador compuesto si corresponde
             if ($operator !== "=") {
                 $oldReg = $this->nextReg();
@@ -1534,7 +1532,8 @@ class CodeGenerator extends GolampiBaseVisitor
             $elements = $ctx->arrayElements()->arrayElement();
             foreach ($elements as $i => $elem) {
                 $valReg  = $this->visit($elem->expression());
-                $this->emit("    str     {$valReg}, [{$baseReg}, #{$i * 8}]   // arr[{$i}]");
+                $elemOffset = $i * 8;
+                $this->emit("    str     {$valReg}, [{$baseReg}, #{$elemOffset}]   // arr[{$i}]");
             }
         }
 
@@ -1766,65 +1765,65 @@ class CodeGenerator extends GolampiBaseVisitor
             // Imprime el entero en x0 como string decimal
             // ──────────────────────────────────────────────────
             case "__print_int":
-                $this->emit("// ── Helper: __print_int ──────────────────────────");
-                $this->emitLabel("__print_int");
-                $this->emit("    stp     x29, x30, [sp, #-64]!");
-                $this->emit("    mov     x29, sp");
-                $this->emit("    mov     x9,  x0            // valor a imprimir");
-                $this->emit("    mov     x10, #0            // contador dígitos");
-                $this->emit("    add     x11, x29, #16      // buffer en stack");
-                $this->emit("    // Caso especial: 0");
-                $this->emit("    cbnz    x9, __pi_neg_check");
-                $this->emit("    mov     w12, #48           // '0'");
-                $this->emit("    strb    w12, [x11]");
-                $this->emit("    mov     x0, #1             // stdout");
-                $this->emit("    mov     x1, x11");
-                $this->emit("    mov     x2, #1");
-                $this->emit("    mov     x8, #64");
-                $this->emit("    svc     #0");
-                $this->emit("    b       __pi_done");
-                $this->emitLabel("__pi_neg_check");
-                $this->emit("    // Negativo?");
-                $this->emit("    cmp     x9, #0");
-                $this->emit("    b.ge    __pi_loop");
-                $this->emit("    mov     w12, #45           // '-'");
-                $this->emit("    strb    w12, [x11, x10]");
-                $this->emit("    add     x10, x10, #1");
-                $this->emit("    neg     x9, x9");
-                $this->emitLabel("__pi_loop");
-                $this->emit("    cbz     x9, __pi_reverse");
-                $this->emit("    mov     x13, #10");
-                $this->emit("    udiv    x14, x9, x13       // cociente");
-                $this->emit("    msub    x15, x14, x13, x9  // resto = x9 - cociente*10");
-                $this->emit("    add     x15, x15, #48      // ASCII");
-                $this->emit("    strb    w15, [x11, x10]");
-                $this->emit("    add     x10, x10, #1");
-                $this->emit("    mov     x9,  x14");
-                $this->emit("    b       __pi_loop");
-                $this->emitLabel("__pi_reverse");
-                $this->emit("    // Invertir dígitos en buffer");
-                $this->emit("    mov     x16, #0            // inicio");
-                $this->emit("    sub     x17, x10, #1       // fin");
-                $this->emitLabel("__pi_rev_loop");
-                $this->emit("    cmp     x16, x17");
-                $this->emit("    b.ge    __pi_print");
-                $this->emit("    ldrb    w12, [x11, x16]");
-                $this->emit("    ldrb    w13, [x11, x17]");
-                $this->emit("    strb    w13, [x11, x16]");
-                $this->emit("    strb    w12, [x11, x17]");
-                $this->emit("    add     x16, x16, #1");
-                $this->emit("    sub     x17, x17, #1");
-                $this->emit("    b       __pi_rev_loop");
-                $this->emitLabel("__pi_print");
-                $this->emit("    mov     x0, #1             // stdout");
-                $this->emit("    mov     x1, x11            // buffer");
-                $this->emit("    mov     x2, x10            // longitud");
-                $this->emit("    mov     x8, #64            // syscall write");
-                $this->emit("    svc     #0");
-                $this->emitLabel("__pi_done");
-                $this->emit("    ldp     x29, x30, [sp], #64");
-                $this->emit("    ret");
-                $this->emit("");
+                $this->emitHelper("// ── Helper: __print_int ──────────────────────────");
+                $this->emitHelperLabel("__print_int");
+                $this->emitHelper("    stp     x29, x30, [sp, #-64]!");
+                $this->emitHelper("    mov     x29, sp");
+                $this->emitHelper("    mov     x9,  x0            // valor a imprimir");
+                $this->emitHelper("    mov     x10, #0            // contador dígitos");
+                $this->emitHelper("    add     x11, x29, #16      // buffer en stack");
+                $this->emitHelper("    // Caso especial: 0");
+                $this->emitHelper("    cbnz    x9, __pi_neg_check");
+                $this->emitHelper("    mov     w12, #48           // '0'");
+                $this->emitHelper("    strb    w12, [x11]");
+                $this->emitHelper("    mov     x0, #1             // stdout");
+                $this->emitHelper("    mov     x1, x11");
+                $this->emitHelper("    mov     x2, #1");
+                $this->emitHelper("    mov     x8, #64");
+                $this->emitHelper("    svc     #0");
+                $this->emitHelper("    b       __pi_done");
+                $this->emitHelperLabel("__pi_neg_check");
+                $this->emitHelper("    // Negativo?");
+                $this->emitHelper("    cmp     x9, #0");
+                $this->emitHelper("    b.ge    __pi_loop");
+                $this->emitHelper("    mov     w12, #45           // '-'");
+                $this->emitHelper("    strb    w12, [x11, x10]");
+                $this->emitHelper("    add     x10, x10, #1");
+                $this->emitHelper("    neg     x9, x9");
+                $this->emitHelperLabel("__pi_loop");
+                $this->emitHelper("    cbz     x9, __pi_reverse");
+                $this->emitHelper("    mov     x13, #10");
+                $this->emitHelper("    udiv    x14, x9, x13       // cociente");
+                $this->emitHelper("    msub    x15, x14, x13, x9  // resto = x9 - cociente*10");
+                $this->emitHelper("    add     x15, x15, #48      // ASCII");
+                $this->emitHelper("    strb    w15, [x11, x10]");
+                $this->emitHelper("    add     x10, x10, #1");
+                $this->emitHelper("    mov     x9,  x14");
+                $this->emitHelper("    b       __pi_loop");
+                $this->emitHelperLabel("__pi_reverse");
+                $this->emitHelper("    // Invertir dígitos en buffer");
+                $this->emitHelper("    mov     x16, #0            // inicio");
+                $this->emitHelper("    sub     x17, x10, #1       // fin");
+                $this->emitHelperLabel("__pi_rev_loop");
+                $this->emitHelper("    cmp     x16, x17");
+                $this->emitHelper("    b.ge    __pi_print");
+                $this->emitHelper("    ldrb    w12, [x11, x16]");
+                $this->emitHelper("    ldrb    w13, [x11, x17]");
+                $this->emitHelper("    strb    w13, [x11, x16]");
+                $this->emitHelper("    strb    w12, [x11, x17]");
+                $this->emitHelper("    add     x16, x16, #1");
+                $this->emitHelper("    sub     x17, x17, #1");
+                $this->emitHelper("    b       __pi_rev_loop");
+                $this->emitHelperLabel("__pi_print");
+                $this->emitHelper("    mov     x0, #1             // stdout");
+                $this->emitHelper("    mov     x1, x11            // buffer");
+                $this->emitHelper("    mov     x2, x10            // longitud");
+                $this->emitHelper("    mov     x8, #64            // syscall write");
+                $this->emitHelper("    svc     #0");
+                $this->emitHelperLabel("__pi_done");
+                $this->emitHelper("    ldp     x29, x30, [sp], #64");
+                $this->emitHelper("    ret");
+                $this->emitHelper("");
                 break;
 
             // ──────────────────────────────────────────────────
@@ -1833,18 +1832,18 @@ class CodeGenerator extends GolampiBaseVisitor
             // x1 = longitud
             // ──────────────────────────────────────────────────
             case "__print_str":
-                $this->emit("// ── Helper: __print_str ──────────────────────────");
-                $this->emitLabel("__print_str");
-                $this->emit("    stp     x29, x30, [sp, #-16]!");
-                $this->emit("    mov     x29, sp");
-                $this->emit("    mov     x2,  x1            // longitud");
-                $this->emit("    mov     x1,  x0            // dirección");
-                $this->emit("    mov     x0,  #1            // stdout");
-                $this->emit("    mov     x8,  #64           // syscall write");
-                $this->emit("    svc     #0");
-                $this->emit("    ldp     x29, x30, [sp], #16");
-                $this->emit("    ret");
-                $this->emit("");
+                $this->emitHelper("// ── Helper: __print_str ──────────────────────────");
+                $this->emitHelperLabel("__print_str");
+                $this->emitHelper("    stp     x29, x30, [sp, #-16]!");
+                $this->emitHelper("    mov     x29, sp");
+                $this->emitHelper("    mov     x2,  x1            // longitud");
+                $this->emitHelper("    mov     x1,  x0            // dirección");
+                $this->emitHelper("    mov     x0,  #1            // stdout");
+                $this->emitHelper("    mov     x8,  #64           // syscall write");
+                $this->emitHelper("    svc     #0");
+                $this->emitHelper("    ldp     x29, x30, [sp], #16");
+                $this->emitHelper("    ret");
+                $this->emitHelper("");
                 break;
 
             // ──────────────────────────────────────────────────
@@ -1852,75 +1851,109 @@ class CodeGenerator extends GolampiBaseVisitor
             // x0 = 0 (false) o 1 (true)
             // ──────────────────────────────────────────────────
             case "__print_bool":
-                $this->emit("// ── Helper: __print_bool ─────────────────────────");
+                $this->emitHelper("// ── Helper: __print_bool ─────────────────────────");
                 // Agregar strings true/false al .data
-                $this->emitData("__str_true:  .ascii \"true\"");
-                $this->emitData("__str_true_len = . - __str_true");
-                $this->emitData("__str_false: .ascii \"false\"");
-                $this->emitData("__str_false_len = . - __str_false");
-                $this->emitLabel("__print_bool");
-                $this->emit("    stp     x29, x30, [sp, #-16]!");
-                $this->emit("    mov     x29, sp");
-                $this->emit("    cbnz    x0, __pb_true");
-                $this->emit("    adrp    x1, __str_false");
-                $this->emit("    add     x1, x1, :lo12:__str_false");
-                $this->emit("    mov     x2, #5             // len('false')");
-                $this->emit("    b       __pb_write");
-                $this->emitLabel("__pb_true");
-                $this->emit("    adrp    x1, __str_true");
-                $this->emit("    add     x1, x1, :lo12:__str_true");
-                $this->emit("    mov     x2, #4             // len('true')");
-                $this->emitLabel("__pb_write");
-                $this->emit("    mov     x0, #1             // stdout");
-                $this->emit("    mov     x8, #64            // syscall write");
-                $this->emit("    svc     #0");
-                $this->emit("    ldp     x29, x30, [sp], #16");
-                $this->emit("    ret");
-                $this->emit("");
+                $this->emitHelperData("__str_true:  .ascii \"true\"");
+                $this->emitHelperData("__str_true_len = . - __str_true");
+                $this->emitHelperData("__str_false: .ascii \"false\"");
+                $this->emitHelperData("__str_false_len = . - __str_false");
+                $this->emitHelperLabel("__print_bool");
+                $this->emitHelper("    stp     x29, x30, [sp, #-16]!");
+                $this->emitHelper("    mov     x29, sp");
+                $this->emitHelper("    cbnz    x0, __pb_true");
+                $this->emitHelper("    adrp    x1, __str_false");
+                $this->emitHelper("    add     x1, x1, :lo12:__str_false");
+                $this->emitHelper("    mov     x2, #5             // len('false')");
+                $this->emitHelper("    b       __pb_write");
+                $this->emitHelperLabel("__pb_true");
+                $this->emitHelper("    adrp    x1, __str_true");
+                $this->emitHelper("    add     x1, x1, :lo12:__str_true");
+                $this->emitHelper("    mov     x2, #4             // len('true')");
+                $this->emitHelperLabel("__pb_write");
+                $this->emitHelper("    mov     x0, #1             // stdout");
+                $this->emitHelper("    mov     x8, #64            // syscall write");
+                $this->emitHelper("    svc     #0");
+                $this->emitHelper("    ldp     x29, x30, [sp], #16");
+                $this->emitHelper("    ret");
+                $this->emitHelper("");
                 break;
 
             // ──────────────────────────────────────────────────
             // __print_newline
             // ──────────────────────────────────────────────────
             case "__print_newline":
-                $this->emit("// ── Helper: __print_newline ──────────────────────");
-                $this->emitData("__newline: .ascii \"\\n\"");
-                $this->emitLabel("__print_newline");
-                $this->emit("    stp     x29, x30, [sp, #-16]!");
-                $this->emit("    mov     x29, sp");
-                $this->emit("    adrp    x0, __newline");
-                $this->emit("    add     x0, x0, :lo12:__newline");
-                $this->emit("    mov     x1, #1             // stdout");
-                $this->emit("    mov     x2, #1             // len");
-                $this->emit("    // reordenar para syscall: x0=fd, x1=buf, x2=len");
-                $this->emit("    mov     x2, #1");
-                $this->emit("    mov     x1, x0");
-                $this->emit("    mov     x0, #1");
-                $this->emit("    mov     x8, #64");
-                $this->emit("    svc     #0");
-                $this->emit("    ldp     x29, x30, [sp], #16");
-                $this->emit("    ret");
-                $this->emit("");
+                $this->emitHelper("// ── Helper: __print_newline ──────────────────────");
+                $this->emitHelperData("__newline: .ascii \"\\n\"");
+                $this->emitHelperLabel("__print_newline");
+                $this->emitHelper("    stp     x29, x30, [sp, #-16]!");
+                $this->emitHelper("    mov     x29, sp");
+                $this->emitHelper("    adrp    x0, __newline");
+                $this->emitHelper("    add     x0, x0, :lo12:__newline");
+                $this->emitHelper("    // reordenar para syscall: x0=fd, x1=buf, x2=len");
+                $this->emitHelper("    mov     x2, #1");
+                $this->emitHelper("    mov     x1, x0");
+                $this->emitHelper("    mov     x0, #1");
+                $this->emitHelper("    mov     x8, #64");
+                $this->emitHelper("    svc     #0");
+                $this->emitHelper("    ldp     x29, x30, [sp], #16");
+                $this->emitHelper("    ret");
+                $this->emitHelper("");
                 break;
 
             // ──────────────────────────────────────────────────
             // __print_space
             // ──────────────────────────────────────────────────
             case "__print_space":
-                $this->emit("// ── Helper: __print_space ────────────────────────");
-                $this->emitData("__space: .ascii \" \"");
-                $this->emitLabel("__print_space");
-                $this->emit("    stp     x29, x30, [sp, #-16]!");
-                $this->emit("    mov     x29, sp");
-                $this->emit("    adrp    x1, __space");
-                $this->emit("    add     x1, x1, :lo12:__space");
-                $this->emit("    mov     x0, #1             // stdout");
-                $this->emit("    mov     x2, #1             // len");
-                $this->emit("    mov     x8, #64            // syscall write");
-                $this->emit("    svc     #0");
-                $this->emit("    ldp     x29, x30, [sp], #16");
-                $this->emit("    ret");
-                $this->emit("");
+                $this->emitHelper("// ── Helper: __print_space ────────────────────────");
+                $this->emitHelperData("__space: .ascii \" \"");
+                $this->emitHelperLabel("__print_space");
+                $this->emitHelper("    stp     x29, x30, [sp, #-16]!");
+                $this->emitHelper("    mov     x29, sp");
+                $this->emitHelper("    adrp    x1, __space");
+                $this->emitHelper("    add     x1, x1, :lo12:__space");
+                $this->emitHelper("    mov     x0, #1             // stdout");
+                $this->emitHelper("    mov     x2, #1             // len");
+                $this->emitHelper("    mov     x8, #64            // syscall write");
+                $this->emitHelper("    svc     #0");
+                $this->emitHelper("    ldp     x29, x30, [sp], #16");
+                $this->emitHelper("    ret");
+                $this->emitHelper("");
+                break;
+
+            // AGREGAR antes del cierre del switch en requireHelper() (antes de línea 1925):
+            case "__strlen":
+                $this->emitHelper("// ── Helper: __strlen ────────────────────────────");
+                $this->emitHelperLabel("__strlen");
+                $this->emitHelper("    stp     x29, x30, [sp, #-16]!");
+                $this->emitHelper("    mov     x29, sp");
+                $this->emitHelper("    mov     x1, x0");
+                $this->emitHelperLabel("__strlen_loop");
+                $this->emitHelper("    ldrb    w2, [x1]");
+                $this->emitHelper("    cbz     w2, __strlen_done");
+                $this->emitHelper("    add     x1, x1, #1");
+                $this->emitHelper("    b       __strlen_loop");
+                $this->emitHelperLabel("__strlen_done");
+                $this->emitHelper("    sub     x0, x1, x0");
+                $this->emitHelper("    ldp     x29, x30, [sp], #16");
+                $this->emitHelper("    ret");
+                $this->emitHelper("");
+                break;
+
+            case "__memcpy":
+                $this->emitHelper("// ── Helper: __memcpy ────────────────────────────");
+                $this->emitHelperLabel("__memcpy");
+                $this->emitHelper("    stp     x29, x30, [sp, #-16]!");
+                $this->emitHelper("    mov     x29, sp");
+                $this->emitHelper("    cbz     x2, __memcpy_done");
+                $this->emitHelperLabel("__memcpy_loop");
+                $this->emitHelper("    ldrb    w3, [x1], #1");
+                $this->emitHelper("    strb    w3, [x0], #1");
+                $this->emitHelper("    subs    x2, x2, #1");
+                $this->emitHelper("    b.ne    __memcpy_loop");
+                $this->emitHelperLabel("__memcpy_done");
+                $this->emitHelper("    ldp     x29, x30, [sp], #16");
+                $this->emitHelper("    ret");
+                $this->emitHelper("");
                 break;
         }
     }
@@ -2095,90 +2128,153 @@ class CodeGenerator extends GolampiBaseVisitor
 
     /*
     ========================
-    HELPERS ADICIONALES
-    __strlen  __memcpy
+    FLUSH HELPERS
+    Vuelca todos los helpers
+    acumulados al final del
+    buffer de código
     ========================
     */
-    private function requireHelperExtra(string $name): void
+    private function flushHelpers(): void
     {
-        // Delegar al mismo mecanismo de requireHelper
-        // extendemos el switch con los nuevos casos
-        if (isset($this->helpers[$name])) {
-            return;
-        }
-        $this->helpers[$name] = true;
-
-        switch ($name) {
-
-            // ──────────────────────────────────────────────────
-            // __strlen
-            // x0 = dirección del string (null-terminated)
-            // Retorna longitud en x0
-            // ──────────────────────────────────────────────────
-            case "__strlen":
-                $this->emit("// ── Helper: __strlen ────────────────────────────");
-                $this->emitLabel("__strlen");
-                $this->emit("    stp     x29, x30, [sp, #-16]!");
-                $this->emit("    mov     x29, sp");
-                $this->emit("    mov     x1, x0             // puntero inicio");
-                $this->emitLabel("__strlen_loop");
-                $this->emit("    ldrb    w2, [x1]           // cargar byte");
-                $this->emit("    cbz     w2, __strlen_done  // si es 0, terminar");
-                $this->emit("    add     x1, x1, #1         // avanzar puntero");
-                $this->emit("    b       __strlen_loop");
-                $this->emitLabel("__strlen_done");
-                $this->emit("    sub     x0, x1, x0         // longitud = ptr_fin - ptr_ini");
-                $this->emit("    ldp     x29, x30, [sp], #16");
-                $this->emit("    ret");
-                $this->emit("");
-                break;
-
-            // ──────────────────────────────────────────────────
-            // __memcpy
-            // x0 = destino
-            // x1 = origen
-            // x2 = bytes a copiar
-            // ──────────────────────────────────────────────────
-            case "__memcpy":
-                $this->emit("// ── Helper: __memcpy ────────────────────────────");
-                $this->emitLabel("__memcpy");
-                $this->emit("    stp     x29, x30, [sp, #-16]!");
-                $this->emit("    mov     x29, sp");
-                $this->emit("    cbz     x2, __memcpy_done  // si len=0, salir");
-                $this->emitLabel("__memcpy_loop");
-                $this->emit("    ldrb    w3, [x1], #1       // leer byte y avanzar src");
-                $this->emit("    strb    w3, [x0], #1       // escribir byte y avanzar dst");
-                $this->emit("    subs    x2, x2, #1         // decrementar contador");
-                $this->emit("    b.ne    __memcpy_loop       // continuar si quedan bytes");
-                $this->emitLabel("__memcpy_done");
-                $this->emit("    ldp     x29, x30, [sp], #16");
-                $this->emit("    ret");
-                $this->emit("");
-                break;
+        if ($this->helperCode !== "") {
+            $this->code .= "\n" . $this->helperCode;
+            $this->helperCode = "";
         }
     }
 
     /*
     ========================
-    OVERRIDE requireHelper
-    para incluir los helpers
-    extra de esta parte
+    getCode() — VERSIÓN FINAL
+    Reemplaza el de Parte 1
+    Orden: .data → .text →
+    código usuario → helpers
     ========================
     */
-    // Nota: se extiende el método requireHelper de la Parte 6
-    // agregando estos casos al mismo switch.
-    // En el archivo final unificado, estos cases van dentro
-    // del switch de requireHelper, NO como método separado.
-    // requireHelperExtra actúa como puente temporal durante
-    // el proceso de ensamblado por partes.
-
-    // Wrapper para llamar desde emitLen / emitSubstr
-    // usando el mismo array $helpers para no duplicar
-    private function requireHelper_ext(string $name): void
+    public function getCode(): string
     {
-        $this->requireHelperExtra($name);
+        $out = "// ================================================\n";
+        $out .= "// Generado por Golampi Compiler\n";
+        $out .= "// Universidad San Carlos de Guatemala\n";
+        $out .= "// Arquitectura: ARM64 (AArch64)\n";
+        $out .= "// ================================================\n\n";
+
+        // Sección .data (strings y constantes)
+        if ($this->dataSection !== "") {
+            $out .= ".section .data\n";
+            $out .= ".align 3\n";
+            $out .= $this->dataSection;
+            $out .= "\n";
+        }
+
+        // Sección .text (código ejecutable)
+        $out .= ".section .text\n";
+        $out .= ".align 2\n";
+        $out .= ".global _start\n\n";
+
+        // Código de usuario (_start + funciones)
+        $out .= $this->code;
+
+        return $out;
     }
 
-    // ==========================================================
-    // CONTINÚA EN PARTE 8
-    // ==========================================================
+    /*
+    ========================
+    HELPER: emitHelper
+    Versión correcta de emit
+    para usar dentro de
+    requireHelper()
+    ========================
+    */
+    private function emitHelper(string $line): void
+    {
+        $this->helperCode .= $line . "\n";
+    }
+
+    private function emitHelperLabel(string $label): void
+    {
+        $this->helperCode .= $label . ":\n";
+    }
+
+    private function emitHelperData(string $line): void
+    {
+        // Los datos de helpers también van a .data
+        $this->dataSection .= $line . "\n";
+    }
+
+
+    /*
+    ========================
+    MANEJO DE ARRAYS
+    Acceso multidimensional
+    a[i][j]
+    ========================
+    */
+    private function emitArrayAccess(string $arrName, array $indices): string
+    {
+        if (!isset($this->localVars[$arrName])) {
+            \ErrorTable::add("Semantico", "Array '$arrName' no declarado.", 0, 0);
+            $r = $this->nextReg();
+            $this->emit("    mov     {$r}, #0");
+            return $r;
+        }
+
+        $offset  = $this->localVars[$arrName];
+        $baseReg = $this->nextReg();
+
+        // Cargar dirección base del array
+        $this->emit("    add     {$baseReg}, x29, #{$offset}   // base {$arrName}");
+
+        foreach ($indices as $idxReg) {
+            $addrReg = $this->nextReg();
+            $this->emit("    add     {$addrReg}, {$baseReg}, {$idxReg}, lsl #3");
+            $baseReg = $addrReg;
+        }
+
+        $destReg = $this->nextReg();
+        $this->emit("    ldr     {$destReg}, [{$baseReg}]   // load array elem");
+
+        return $destReg;
+    }
+
+    /*
+    ========================
+    HELPER FINAL: formatear
+    valor para SymbolTable
+    ========================
+    */
+    private function formatValueForSymbol($value): string
+    {
+        if ($value === null)   return "—";
+        if (is_bool($value))  return $value ? "true" : "false";
+        if (is_array($value)) return "{...}";
+        return (string)$value;
+    }
+
+    /*
+    ========================
+    HELPER: alinear frame
+    a múltiplo de 16
+    (requerimiento ARM64)
+    ========================
+    */
+    private function alignTo16(int $size): int
+    {
+        return ($size + 15) & ~15;
+    }
+
+    /*
+    ========================
+    HELPER: calcular frame
+    size real de una función
+    contando todas sus vars
+    ========================
+    */
+    private function calcFrameSize(int $varCount): int
+    {
+        // 16 bytes fijos para x29/x30
+        // + 8 bytes por cada variable local/parámetro
+        // + margen de 16 bytes para registros temporales
+        $raw = 16 + ($varCount * 8) + 16;
+        return $this->alignTo16($raw);
+    }
+}
