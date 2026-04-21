@@ -280,15 +280,16 @@ class CodeGenerator extends GolampiBaseVisitor
             $paramCount = count($ctx->parameters()->parameter());
         }
 
-        // Frame unificado: 16 (x29/x30) + variables + margen, alineado a 16
-        $totalFrame = $this->alignTo16(16 + ($paramCount * 8) + 512);
-        $this->frameSize = $totalFrame;
+        // Frame dividido en 2 partes:
+        $localFrame = $this->alignTo16(($paramCount * 8) + 496);
+        $this->frameSize = $localFrame;
 
         // ── Etiqueta + PRÓLOGO ────────────────────────────────
         $this->emit("// ── Función: $name ──────────────────────────");
         $this->emitLabel($name);
-        $this->emit("    stp     x29, x30, [sp, #-{$totalFrame}]!");
+        $this->emit("    stp     x29, x30, [sp, #-16]!   // salvar fp y lr");
         $this->emit("    mov     x29, sp");
+        $this->emit("    sub     sp, sp, #{$localFrame}   // espacio variables locales");
 
         // ── Parámetros ────────────────────────────────────────
         if ($ctx->parameters() !== null) {
@@ -312,7 +313,8 @@ class CodeGenerator extends GolampiBaseVisitor
 
         // ── EPÍLOGO (una sola vez) ────────────────────────────
         $this->emitLabel("{$name}_end");
-        $this->emit("    ldp     x29, x30, [sp], #{$totalFrame}");
+        $this->emit("    add     sp, sp, #{$localFrame}   // liberar variables locales");
+        $this->emit("    ldp     x29, x30, [sp], #16      // restaurar fp y lr");
         $this->emit("    ret");
         $this->emit("");
 
