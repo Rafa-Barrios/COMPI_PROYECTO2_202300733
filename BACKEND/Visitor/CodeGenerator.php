@@ -61,6 +61,12 @@ class CodeGenerator extends GolampiBaseVisitor
     // Agregar 
     private $helperCode = "";
 
+    // Mapa nombre→tipo para detectar tipo al imprimir
+    private $varTypes = [];
+
+    // Mapa etiqueta→longitud de strings
+    private $strLengths = [];
+
     /*
     ========================
     CONSTRUCTOR
@@ -120,10 +126,13 @@ class CodeGenerator extends GolampiBaseVisitor
     private function addString(string $str): string
     {
         $label = "str_" . ($this->strCounter++);
-        // Escapar caracteres especiales para .ascii
-        $escaped = addcslashes($str, "\\\"\n\t\r");
+        $escaped = str_replace(
+            ["\\", '"',  "\n", "\t", "\r"],
+            ["\\\\", '\\"', "\\n", "\\t", "\\r"]
+        , $str);
+        $len = strlen($str);
         $this->emitData("{$label}: .ascii \"{$escaped}\"");
-        $this->emitData("{$label}_len = . - {$label}");
+        $this->strLengths[$label] = $len;
         return $label;
     }
 
@@ -242,7 +251,6 @@ class CodeGenerator extends GolampiBaseVisitor
         $line = $ctx->getStart()->getLine();
         $col  = $ctx->getStart()->getCharPositionInLine();
 
-        // Validaciones de main
         if ($name === "main" && $ctx->parameters() !== null) {
             \ErrorTable::add("Semantico", "La funcion main no puede recibir parametros.", $line, $col);
         }
@@ -250,76 +258,65 @@ class CodeGenerator extends GolampiBaseVisitor
             \ErrorTable::add("Semantico", "La funcion main no puede retornar valores.", $line, $col);
         }
 
-        // Registrar en tabla de símbolos
         \SymbolTable::add($name, "funcion", $this->currentScope, "—", $line, $col);
 
-        // ── Guardar estado del scope anterior ──────────────────
-        $prevScope      = $this->currentScope;
-        $prevEnv        = $this->environment;
-        $prevOffset     = $this->stackOffset;
-        $prevFrameSize  = $this->frameSize;
-        $prevLocalVars  = $this->localVars;
-        $prevTempReg    = $this->tempReg;
+        // Guardar estado anterior
+        $prevScope     = $this->currentScope;
+        $prevEnv       = $this->environment;
+        $prevOffset    = $this->stackOffset;
+        $prevFrameSize = $this->frameSize;
+        $prevLocalVars = $this->localVars;
+        $prevTempReg   = $this->tempReg;
 
-        // ── Inicializar nuevo scope ─────────────────────────────
+        // Inicializar nuevo scope
         $this->currentScope = $name;
         $this->environment  = $prevEnv->createChild();
         $this->stackOffset  = 0;
         $this->localVars    = [];
         $this->tempReg      = 9;
 
-        // ── Pre-calcular tamaño del frame ───────────────────────
-        // x29 (fp) + x30 (lr) = 16 bytes fijos
-        // + 8 bytes por cada parámetro y variable local
-        // Usamos estimación: 16 + (params * 8) + margen
         $paramCount = 0;
         if ($ctx->parameters() !== null) {
             $paramCount = count($ctx->parameters()->parameter());
         }
-        // LÍNEA CORRECTA:
-        $estimatedFrame = 512; // frame fijo conservador, alineado a 16
-        $this->frameSize = $estimatedFrame;
 
-        // ── Emitir etiqueta de la función ──────────────────────
+        // Frame unificado: 16 (x29/x30) + variables + margen, alineado a 16
+        $totalFrame = $this->alignTo16(16 + ($paramCount * 8) + 512);
+        $this->frameSize = $totalFrame;
+
+        // ── Etiqueta + PRÓLOGO ────────────────────────────────
         $this->emit("// ── Función: $name ──────────────────────────");
         $this->emitLabel($name);
-
-        // ── PRÓLOGO ────────────────────────────────────────────
-        // REEMPLAZAR línea 288 (prólogo completo):
-        $this->emit("    stp     x29, x30, [sp, #-16]!");
+        $this->emit("    stp     x29, x30, [sp, #-{$totalFrame}]!");
         $this->emit("    mov     x29, sp");
-        $this->emit("    sub     sp, sp, #496          // reservar frame local");
 
-        // ── Parámetros: cargar de x0..x7 al stack ─────────────
+        // ── Parámetros ────────────────────────────────────────
         if ($ctx->parameters() !== null) {
-            $params = $ctx->parameters()->parameter();
-            foreach ($params as $i => $param) {
+            foreach ($ctx->parameters()->parameter() as $i => $param) {
                 $paramName = $param->ID()->getText();
                 $this->stackOffset -= 8;
                 $offset = $this->stackOffset;
                 $this->localVars[$paramName] = $offset;
-                $reg = "x$i";
-                $this->emit("    str     {$reg}, [x29, #{$offset}]   // param: {$paramName}");
+                $this->emit("    str     x{$i}, [x29, #{$offset}]   // param: {$paramName}");
                 $this->environment->define($paramName, $offset);
-                \SymbolTable::add($paramName, "parametro", $name, "—", $param->getStart()->getLine(), $param->getStart()->getCharPositionInLine());
+                \SymbolTable::add($paramName, "parametro", $name, "—",
+                    $param->getStart()->getLine(),
+                    $param->getStart()->getCharPositionInLine());
             }
         }
 
-        // ── Cuerpo de la función ───────────────────────────────
-        $stmts = $ctx->block()->statement();
-        foreach ($stmts as $stmt) {
+        // ── Cuerpo ────────────────────────────────────────────
+        foreach ($ctx->block()->statement() as $stmt) {
             $this->visit($stmt);
         }
 
-        // ── EPÍLOGO ───────────────────────────────────────────
-        // REEMPLAZAR línea 314 (epílogo completo):
+        // ── EPÍLOGO (una sola vez) ────────────────────────────
         $this->emitLabel("{$name}_end");
-        $this->emit("    add     sp, sp, #496          // liberar frame local");
-        $this->emit("    ldp     x29, x30, [sp], #16");
+        $this->emit("    ldp     x29, x30, [sp], #{$totalFrame}");
         $this->emit("    ret");
         $this->emit("");
 
-        // ── Restaurar estado del scope anterior ────────────────
+        // Restaurar estado anterior
         $this->currentScope = $prevScope;
         $this->environment  = $prevEnv;
         $this->stackOffset  = $prevOffset;
@@ -377,9 +374,11 @@ class CodeGenerator extends GolampiBaseVisitor
                 $this->emit("    str     xzr, [x29, #{$offset}]   // var {$varName} = default");
             }
 
+            $typeName = $this->resolveTypeName($ctx->type());
+            $this->varTypes[$varName] = $typeName;
             \SymbolTable::add(
                 $varName,
-                $this->resolveTypeName($ctx->type()),
+                $typeName,
                 $this->currentScope,
                 "—",
                 $line,
@@ -425,7 +424,9 @@ class CodeGenerator extends GolampiBaseVisitor
                 $this->localVars[$varName] = $offset;
                 $this->environment->define($varName, $offset, $line, $col);
                 $this->emit("    str     {$reg}, [x29, #{$offset}]   // decl {$varName}");
-                \SymbolTable::add($varName, "auto", $this->currentScope, "—", $line, $col);
+                $inferredType = $this->inferTypeFromExpr($ctx->exprList()->expression()[$i] ?? null);
+                $this->varTypes[$varName] = $inferredType;
+                \SymbolTable::add($varName, $inferredType, $this->currentScope, "—", $line, $col);
                 $hasNew = true;
             }
         }
@@ -1479,16 +1480,24 @@ class CodeGenerator extends GolampiBaseVisitor
             return $destReg;
         }
 
-        // FLOAT (guardado como entero escalado x1000 por simplicidad)
+        // FLOAT: guardar parte entera y decimal por separado
         if (preg_match('/^-?\d+\.\d+$/', $text)) {
-            $val = intval(floatval($text) * 1000);
-            $this->emit("    mov     {$destReg}, #{$val}   // float {$text} x1000");
+            // Guardar como string en .data y retornar su dirección
+            $label = $this->addString($text);
+            $this->emit("    adrp    {$destReg}, {$label}   // float {$text}");
+            $this->emit("    add     {$destReg}, {$destReg}, :lo12:{$label}");
+            // Marcar como string para que fmt.Println lo imprima correctamente
             return $destReg;
         }
 
         // STRING
         if ($text[0] === '"') {
-            $str   = substr($text, 1, -1);
+            $str = substr($text, 1, -1);
+            // Procesar secuencias de escape
+            $str = str_replace(
+                ['\\n',  '\\t',  '\\r',  '\\"',  '\\\\'],
+                ["\n",   "\t",   "\r",   '"',    "\\"]
+            , $str);
             $label = $this->addString($str);
             $this->emit("    adrp    {$destReg}, {$label}");
             $this->emit("    add     {$destReg}, {$destReg}, :lo12:{$label}");
@@ -1635,14 +1644,22 @@ class CodeGenerator extends GolampiBaseVisitor
                 switch ($typeHint) {
 
                     case "string":
-                        // reg contiene dirección del string en .data
-                        // Necesitamos también la longitud
-                        $lenLabel = $this->getStringLenLabel($expr);
-                        if ($lenLabel !== null) {
+                        // Calcular longitud real del string
+                        $strText = $expr->getText();
+                        if (strlen($strText) >= 2 && $strText[0] === '"') {
+                            // String literal: longitud conocida
+                            $rawStr = substr($strText, 1, -1);
+                            $rawStr = str_replace(
+                                ['\\n','\\t','\\r','\\"','\\\\'],
+                                ["\n", "\t", "\r", '"',  "\\"]
+                            , $rawStr);
+                            $strLen = strlen($rawStr);
+                            // +1 por el \n que addString agrega
+                            $strLen += 1;
                             $this->emit("    mov     x0, {$reg}         // str addr");
-                            $this->emit("    mov     x1, #{$lenLabel}    // str len");
+                            $this->emit("    mov     x1, #{$strLen}      // str len");
                         } else {
-                            // Longitud desconocida: usar __strlen helper
+                            // Variable string: usar __strlen
                             $this->requireHelper("__strlen");
                             $this->emit("    mov     x0, {$reg}");
                             $this->emit("    bl      __strlen");
@@ -1668,6 +1685,15 @@ class CodeGenerator extends GolampiBaseVisitor
                         $this->emit("    mov     x8, #64         // syscall write");
                         $this->emit("    svc     #0");
                         $this->emit("    add     sp, sp, #16");
+                        break;
+
+                    case "float32":
+                        $this->requireHelper("__strlen");
+                        $this->emit("    mov     x0, {$reg}");
+                        $this->emit("    bl      __strlen");
+                        $this->emit("    mov     x1, x0");
+                        $this->emit("    mov     x0, {$reg}");
+                        $this->emit("    bl      __print_str");
                         break;
 
                     default:
@@ -1706,25 +1732,46 @@ class CodeGenerator extends GolampiBaseVisitor
         if (strlen($text) >= 2 && $text[0] === '"') {
             return "string";
         }
-
         // Rune literal
         if (strlen($text) >= 3 && $text[0] === "'") {
             return "rune";
         }
-
         // Bool literal
         if ($text === "true" || $text === "false") {
             return "bool";
         }
-
-        // Número
+        // Float literal
+        if (preg_match('/^-?\d+\.\d+$/', $text)) {
+            return "float32";
+        }
+        // Int literal
         if (preg_match('/^-?\d+$/', $text)) {
             return "int";
         }
-
-        // Variable: intentar inferir por nombre en localVars
-        // Por defecto tratamos como int (el más común)
+        // Variable: buscar en mapa de tipos
+        if (preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $text)) {
+            if (isset($this->varTypes[$text])) {
+                $t = $this->varTypes[$text];
+                if ($t === "string")  return "string";
+                if ($t === "bool")    return "bool";
+                if ($t === "float32") return "float32";
+                if ($t === "rune")    return "rune";
+                return "int";
+            }
+        }
         return "int";
+    }
+
+    private function inferTypeFromExpr($expr): string
+    {
+        if ($expr === null) return "int32";
+        $text = $expr->getText();
+        if (strlen($text) >= 2 && $text[0] === '"')  return "string";
+        if (strlen($text) >= 3 && $text[0] === "'")  return "rune";
+        if ($text === "true" || $text === "false")    return "bool";
+        if (preg_match('/^-?\d+\.\d+$/', $text))     return "float32";
+        if (preg_match('/^-?\d+$/', $text))          return "int32";
+        return "int32";
     }
 
     /*
