@@ -1350,7 +1350,8 @@ class CodeGenerator extends GolampiBaseVisitor
             $child = $ctx->getChild($i);
 
             // ── LLAMADA A FUNCIÓN ──────────────────────────────
-            if ($child instanceof \CallContext) {
+            $childClass = get_class($child);
+            if (str_contains($childClass, 'Call')) {
 
                 if ($varName === "main") {
                     \ErrorTable::add(
@@ -1362,24 +1363,26 @@ class CodeGenerator extends GolampiBaseVisitor
                     return "xzr";
                 }
 
-                // Evaluar argumentos y cargarlos en x0..x7
+                // Evaluar y cargar argumentos en x0..x7
                 if ($child->exprList() !== null) {
                     $args = $child->exprList()->expression();
                     foreach ($args as $j => $arg) {
                         $argReg = $this->visit($arg);
-                        $this->emit("    mov     x{$j}, {$argReg}   // arg[{$j}]");
+                        $this->emit("    mov     x{$j}, {$argReg}   # arg[{$j}]");
                     }
                 }
 
-                $this->emit("    bl      {$varName}   // call {$varName}");
+                // Llamar a la función
+                $this->emit("    bl      {$varName}   # call {$varName}");
 
-                // Preservar x0 en un registro temporal
+                // El resultado queda en x0
                 $destReg = $this->nextReg();
-                $this->emit("    mov     {$destReg}, x0   // return value");
+                $this->emit("    mov     {$destReg}, x0   # return value");
                 $value = $destReg;
 
+
             // ── ÍNDICE DE ARRAY ────────────────────────────────
-            } elseif ($child instanceof \IndexContext) {
+            } elseif (str_contains(get_class($child), 'Index')) {
 
                 $idxReg  = $this->visit($child->expression());
                 $baseReg = $this->nextReg();
@@ -1401,7 +1404,7 @@ class CodeGenerator extends GolampiBaseVisitor
                 $value = $loadReg;
 
             // ── ++ / -- ────────────────────────────────────────
-            } elseif ($child instanceof \IncrementOpContext) {
+            } elseif (str_contains(get_class($child), 'Increment')) {
 
                 $op      = $child->getText();
                 $destReg = $this->nextReg();
