@@ -131,7 +131,7 @@ class CodeGenerator extends GolampiBaseVisitor
             ["\\\\", '\\"', "\\n", "\\t", "\\r"]
         , $str);
         $len = strlen($str);
-        $this->emitData("{$label}: .ascii \"{$escaped}\"");
+        $this->emitData("{$label}: .asciz \"{$escaped}\"");
         $this->strLengths[$label] = $len;
         return $label;
     }
@@ -198,7 +198,7 @@ class CodeGenerator extends GolampiBaseVisitor
         $this->emitLabel("_start");
         $this->emit("    bl      main");
         $this->emit("    mov     x0, #0");
-        $this->emit("    mov     x8, #93        // syscall exit");
+        $this->emit("    mov     x8, #93        # syscall exit");
         $this->emit("    svc     #0");
         $this->emit("");
 
@@ -285,11 +285,11 @@ class CodeGenerator extends GolampiBaseVisitor
         $this->frameSize = $localFrame;
 
         // ── Etiqueta + PRÓLOGO ────────────────────────────────
-        $this->emit("// ── Función: $name ──────────────────────────");
+        $this->emit("# ── Función: $name ──────────────────────────");
         $this->emitLabel($name);
-        $this->emit("    stp     x29, x30, [sp, #-16]!   // salvar fp y lr");
+        $this->emit("    stp     x29, x30, [sp, #-16]!   # salvar fp y lr");
         $this->emit("    mov     x29, sp");
-        $this->emit("    sub     sp, sp, #{$localFrame}   // espacio variables locales");
+        $this->emit("    sub     sp, sp, #{$localFrame}   # espacio variables locales");
 
         // ── Parámetros ────────────────────────────────────────
         if ($ctx->parameters() !== null) {
@@ -298,7 +298,7 @@ class CodeGenerator extends GolampiBaseVisitor
                 $this->stackOffset -= 8;
                 $offset = $this->stackOffset;
                 $this->localVars[$paramName] = $offset;
-                $this->emit("    str     x{$i}, [x29, #{$offset}]   // param: {$paramName}");
+                $this->emit("    str     x{$i}, [x29, #{$offset}]   # param: {$paramName}");
                 $this->environment->define($paramName, $offset);
                 \SymbolTable::add($paramName, "parametro", $name, "—",
                     $param->getStart()->getLine(),
@@ -313,8 +313,8 @@ class CodeGenerator extends GolampiBaseVisitor
 
         // ── EPÍLOGO (una sola vez) ────────────────────────────
         $this->emitLabel("{$name}_end");
-        $this->emit("    add     sp, sp, #{$localFrame}   // liberar variables locales");
-        $this->emit("    ldp     x29, x30, [sp], #16      // restaurar fp y lr");
+        $this->emit("    add     sp, sp, #{$localFrame}   # liberar variables locales");
+        $this->emit("    ldp     x29, x30, [sp], #16      # restaurar fp y lr");
         $this->emit("    ret");
         $this->emit("");
 
@@ -366,14 +366,14 @@ class CodeGenerator extends GolampiBaseVisitor
             
             // LÍNEA CORRECTA:
             if ($arrayReg !== null) {
-                $this->emit("    str     {$arrayReg}, [x29, #{$offset}]   // array {$varName}");
+                $this->emit("    str     {$arrayReg}, [x29, #{$offset}]   # array {$varName}");
             } elseif (isset($values[$i])) {
                 // Guardar el registro con el valor en el slot del stack
                 $reg = $values[$i];
-                $this->emit("    str     {$reg}, [x29, #{$offset}]   // var {$varName}");
+                $this->emit("    str     {$reg}, [x29, #{$offset}]   # var {$varName}");
             } else {
                 // Valor por defecto: 0
-                $this->emit("    str     xzr, [x29, #{$offset}]   // var {$varName} = default");
+                $this->emit("    str     xzr, [x29, #{$offset}]   # var {$varName} = default");
             }
 
             $typeName = $this->resolveTypeName($ctx->type());
@@ -419,13 +419,13 @@ class CodeGenerator extends GolampiBaseVisitor
             if (isset($this->localVars[$varName])) {
                 // Reasignar
                 $offset = $this->localVars[$varName];
-                $this->emit("    str     {$reg}, [x29, #{$offset}]   // reassign {$varName}");
+                $this->emit("    str     {$reg}, [x29, #{$offset}]   # reassign {$varName}");
             } else {
                 // Nueva variable
                 $offset = $this->allocStack();
                 $this->localVars[$varName] = $offset;
                 $this->environment->define($varName, $offset, $line, $col);
-                $this->emit("    str     {$reg}, [x29, #{$offset}]   // decl {$varName}");
+                $this->emit("    str     {$reg}, [x29, #{$offset}]   # decl {$varName}");
                 $inferredType = $this->inferTypeFromExpr($ctx->exprList()->expression()[$i] ?? null);
                 $this->varTypes[$varName] = $inferredType;
                 \SymbolTable::add($varName, $inferredType, $this->currentScope, "—", $line, $col);
@@ -464,7 +464,9 @@ class CodeGenerator extends GolampiBaseVisitor
         $offset = $this->allocStack();
         $this->localVars[$name] = $offset;
         $this->environment->defineConst($name, $offset, $line, $col);
-        $this->emit("    str     {$reg}, [x29, #{$offset}]   // const {$name}");
+        $this->emit("    str     {$reg}, [x29, #{$offset}]   # const {$name}");
+        $typeName = $this->resolveTypeName($ctx->type());
+        $this->varTypes[$name] = $typeName;
 
         \SymbolTable::add(
             $name,
@@ -596,7 +598,8 @@ class CodeGenerator extends GolampiBaseVisitor
 
         // Guardar el valor en un registro fijo para comparaciones
         // usamos x19 (callee-saved) para no perderlo entre cases
-        $this->emit("    mov     x19, {$switchReg}   // switch value");
+        $switchSlot = $this->allocStack();
+        $this->emit("    str     {$switchReg}, [x29, #{$switchSlot}]   # switch value");
 
         $labelDefault = null;
 
@@ -615,7 +618,9 @@ class CodeGenerator extends GolampiBaseVisitor
             // Evaluar cada valor del case (puede ser lista: case 1, 2:)
             foreach ($case->exprList()->expression() as $caseExpr) {
                 $caseReg = $this->visit($caseExpr);
-                $this->emit("    cmp     x19, {$caseReg}");
+                $cmpReg = $this->nextReg();
+                $this->emit("    ldr     {$cmpReg}, [x29, #{$switchSlot}]   # load switch value");
+                $this->emit("    cmp     {$cmpReg}, {$caseReg}");
                 $this->emit("    b.eq    {$labelCase}");
             }
         }
@@ -773,7 +778,7 @@ class CodeGenerator extends GolampiBaseVisitor
     public function visitBreakStmt($ctx)
     {
         if ($this->breakLabel !== null) {
-            $this->emit("    b       {$this->breakLabel}   // break");
+            $this->emit("    b       {$this->breakLabel}   # break");
         } else {
             \ErrorTable::add(
                 "Semantico",
@@ -793,7 +798,7 @@ class CodeGenerator extends GolampiBaseVisitor
     public function visitContinueStmt($ctx)
     {
         if ($this->continueLabel !== null) {
-            $this->emit("    b       {$this->continueLabel}   // continue");
+            $this->emit("    b       {$this->continueLabel}   # continue");
         } else {
             \ErrorTable::add(
                 "Semantico",
@@ -821,19 +826,19 @@ class CodeGenerator extends GolampiBaseVisitor
             if (count($exprs) === 1) {
                 // Retorno simple: resultado en x0
                 $reg = $this->visit($exprs[0]);
-                $this->emit("    mov     x0, {$reg}   // return value");
+                $this->emit("    mov     x0, {$reg}   # return value");
 
             } else {
                 // Múltiples retornos: x0, x1, ...
                 foreach ($exprs as $i => $expr) {
                     $reg = $this->visit($expr);
-                    $this->emit("    mov     x{$i}, {$reg}   // return value[$i]");
+                    $this->emit("    mov     x{$i}, {$reg}   # return value[$i]");
                 }
             }
         }
 
         // Saltar al epílogo de la función
-        $this->emit("    b       {$this->currentScope}_end   // return");
+        $this->emit("    b       {$this->currentScope}_end   # return");
 
         return null;
     }
@@ -875,23 +880,23 @@ class CodeGenerator extends GolampiBaseVisitor
             if (is_numeric($idxText)) {
                 // Índice constante: cargarlo directamente
                 $idxReg = $this->nextReg();
-                $this->emit("    mov     {$idxReg}, #{$idxText}   // índice constante");
+                $this->emit("    mov     {$idxReg}, #{$idxText}   # índice constante");
             } elseif (isset($this->localVars[$idxText])) {
                 // Índice es una variable local
                 $idxReg = $this->nextReg();
                 $idxOff = $this->localVars[$idxText];
-                $this->emit("    ldr     {$idxReg}, [x29, #{$idxOff}]   // índice {$idxText}");
+                $this->emit("    ldr     {$idxReg}, [x29, #{$idxOff}]   # índice {$idxText}");
             } else {
                 // Fallback: emitir 0
                 $idxReg = $this->nextReg();
-                $this->emit("    mov     {$idxReg}, #0   // índice desconocido");
+                $this->emit("    mov     {$idxReg}, #0   # índice desconocido");
             }
 
             // Calcular dirección: base + index * 8
             $baseReg = $this->nextReg();
             $addrReg = $this->nextReg();
-            $this->emit("    add     {$baseReg}, x29, #{$baseOffset}   // base de {$arrName}");
-            $this->emit("    add     {$addrReg}, {$baseReg}, {$idxReg}, lsl #3   // addr {$arrName}[i]");
+            $this->emit("    add     {$baseReg}, x29, #{$baseOffset}   # base de {$arrName}");
+            $this->emit("    add     {$addrReg}, {$baseReg}, {$idxReg}, lsl #3   # addr {$arrName}[i]");
             
             // Aplicar operador compuesto si corresponde
             if ($operator !== "=") {
@@ -900,7 +905,7 @@ class CodeGenerator extends GolampiBaseVisitor
                 $rightReg = $this->applyCompoundOp($operator, $oldReg, $rightReg, $ctx);
             }
 
-            $this->emit("    str     {$rightReg}, [{$addrReg}]   // {$arrName}[i] = val");
+            $this->emit("    str     {$rightReg}, [{$addrReg}]   # {$arrName}[i] = val");
             return null;
         }
 
@@ -918,7 +923,7 @@ class CodeGenerator extends GolampiBaseVisitor
             $ptrReg    = $this->nextReg();
 
             // Cargar la dirección guardada en el puntero
-            $this->emit("    ldr     {$ptrReg}, [x29, #{$ptrOffset}]   // load ptr addr");
+            $this->emit("    ldr     {$ptrReg}, [x29, #{$ptrOffset}]   # load ptr addr");
 
             if ($operator !== "=") {
                 $oldReg = $this->nextReg();
@@ -926,7 +931,7 @@ class CodeGenerator extends GolampiBaseVisitor
                 $rightReg = $this->applyCompoundOp($operator, $oldReg, $rightReg, $ctx);
             }
 
-            $this->emit("    str     {$rightReg}, [{$ptrReg}]   // *{$ptrName} = val");
+            $this->emit("    str     {$rightReg}, [{$ptrReg}]   # *{$ptrName} = val");
             return null;
         }
 
@@ -946,11 +951,11 @@ class CodeGenerator extends GolampiBaseVisitor
         // Operador compuesto: cargar valor actual, operar, guardar
         if ($operator !== "=") {
             $oldReg = $this->nextReg();
-            $this->emit("    ldr     {$oldReg}, [x29, #{$offset}]   // load {$leftText}");
+            $this->emit("    ldr     {$oldReg}, [x29, #{$offset}]   # load {$leftText}");
             $rightReg = $this->applyCompoundOp($operator, $oldReg, $rightReg, $ctx);
         }
 
-        $this->emit("    str     {$rightReg}, [x29, #{$offset}]   // {$leftText} = val");
+        $this->emit("    str     {$rightReg}, [x29, #{$offset}]   # {$leftText} = val");
 
         return null;
     }
@@ -1053,7 +1058,7 @@ class CodeGenerator extends GolampiBaseVisitor
         foreach ($ands as $i => $and) {
             $reg = $this->visit($and);
             $this->emit("    cmp     {$reg}, #0");
-            $this->emit("    b.ne    {$labelTrue}   // cortocircuito ||");
+            $this->emit("    b.ne    {$labelTrue}   # cortocircuito ||");
         }
 
         // Todos false
@@ -1089,7 +1094,7 @@ class CodeGenerator extends GolampiBaseVisitor
         foreach ($eqs as $eq) {
             $reg = $this->visit($eq);
             $this->emit("    cmp     {$reg}, #0");
-            $this->emit("    b.eq    {$labelFalse}   // cortocircuito &&");
+            $this->emit("    b.eq    {$labelFalse}   # cortocircuito &&");
         }
 
         // Todos true
@@ -1307,13 +1312,13 @@ class CodeGenerator extends GolampiBaseVisitor
                     return $destReg;
                 }
                 $offset = $this->localVars[$varName];
-                $this->emit("    add     {$destReg}, x29, #{$offset}   // &{$varName}");
+                $this->emit("    add     {$destReg}, x29, #{$offset}   # &{$varName}");
                 break;
 
             // Desreferencia: *p → cargar valor de la dirección
             case "*":
                 $reg = $this->visit($ctx->unary());
-                $this->emit("    ldr     {$destReg}, [{$reg}]   // *ptr");
+                $this->emit("    ldr     {$destReg}, [{$reg}]   # *ptr");
                 break;
 
             default:
@@ -1331,7 +1336,6 @@ class CodeGenerator extends GolampiBaseVisitor
     */
     public function visitPostfix($ctx)
     {
-        // Evaluar primary
         $value   = $this->visit($ctx->primary());
         $varName = null;
 
@@ -1339,15 +1343,22 @@ class CodeGenerator extends GolampiBaseVisitor
             $varName = $ctx->primary()->ID()->getText();
         }
 
+        // Iterar children en orden para respetar el encadenamiento
+        // primary ya fue visitado, ahora procesamos los sufijos
         for ($i = 1; $i < $ctx->getChildCount(); $i++) {
 
             $child = $ctx->getChild($i);
 
             // ── LLAMADA A FUNCIÓN ──────────────────────────────
-            if ($child instanceof \Context\CallContext) {
+            if ($child instanceof \CallContext) {
 
                 if ($varName === "main") {
-                    \ErrorTable::add("Semantico", "La funcion main no puede invocarse explicitamente.", $ctx->getStart()->getLine(), $ctx->getStart()->getCharPositionInLine());
+                    \ErrorTable::add(
+                        "Semantico",
+                        "La funcion main no puede invocarse explicitamente.",
+                        $ctx->getStart()->getLine(),
+                        $ctx->getStart()->getCharPositionInLine()
+                    );
                     return "xzr";
                 }
 
@@ -1356,46 +1367,55 @@ class CodeGenerator extends GolampiBaseVisitor
                     $args = $child->exprList()->expression();
                     foreach ($args as $j => $arg) {
                         $argReg = $this->visit($arg);
-                        $this->emit("    mov     x{$j}, {$argReg}   // arg[$j]");
+                        $this->emit("    mov     x{$j}, {$argReg}   # arg[{$j}]");
                     }
                 }
 
-                $this->emit("    bl      {$varName}   // call {$varName}");
+                $this->emit("    bl      {$varName}   # call {$varName}");
 
-                // El resultado queda en x0
+                // Preservar x0 en un registro temporal
                 $destReg = $this->nextReg();
-                $this->emit("    mov     {$destReg}, x0   // return value");
+                $this->emit("    mov     {$destReg}, x0   # return value");
                 $value = $destReg;
 
             // ── ÍNDICE DE ARRAY ────────────────────────────────
-            } elseif ($child instanceof \Context\IndexContext) {
+            } elseif ($child instanceof \IndexContext) {
 
                 $idxReg  = $this->visit($child->expression());
-                $destReg = $this->nextReg();
-
-                // value contiene la dirección base del array
-                // Calcular: base + index * 8
-                $this->emit("    add     {$destReg}, {$value}, {$idxReg}, lsl #3   // array[i]");
+                $baseReg = $this->nextReg();
+                $addrReg = $this->nextReg();
                 $loadReg = $this->nextReg();
-                $this->emit("    ldr     {$loadReg}, [{$destReg}]   // load array[i]");
+
+                // Calcular dirección base: x29 + offset de la variable
+                if ($varName !== null && isset($this->localVars[$varName])) {
+                    $offset = $this->localVars[$varName];
+                    $this->emit("    add     {$baseReg}, x29, #{$offset}   # base {$varName}");
+                } else {
+                    // Ya tenemos la dirección base en $value (acceso encadenado a[i][j])
+                    $this->emit("    mov     {$baseReg}, {$value}");
+                }
+
+                // addr = base + index * 8
+                $this->emit("    add     {$addrReg}, {$baseReg}, {$idxReg}, lsl #3   # {$varName}[i]");
+                $this->emit("    ldr     {$loadReg}, [{$addrReg}]   # load elem");
                 $value = $loadReg;
 
             // ── ++ / -- ────────────────────────────────────────
-            } elseif ($child instanceof \Context\IncrementOpContext) {
+            } elseif ($child instanceof \IncrementOpContext) {
 
                 $op      = $child->getText();
                 $destReg = $this->nextReg();
 
                 if ($op === "++") {
-                    $this->emit("    add     {$destReg}, {$value}, #1   // {$varName}++");
+                    $this->emit("    add     {$destReg}, {$value}, #1   # {$varName}++");
                 } else {
-                    $this->emit("    sub     {$destReg}, {$value}, #1   // {$varName}--");
+                    $this->emit("    sub     {$destReg}, {$value}, #1   # {$varName}--");
                 }
 
                 // Guardar el nuevo valor en la variable
                 if ($varName !== null && isset($this->localVars[$varName])) {
                     $offset = $this->localVars[$varName];
-                    $this->emit("    str     {$destReg}, [x29, #{$offset}]");
+                    $this->emit("    str     {$destReg}, [x29, #{$offset}]   # store {$varName}");
                 }
 
                 $value = $destReg;
@@ -1445,12 +1465,12 @@ class CodeGenerator extends GolampiBaseVisitor
                     );
                 }
                 // Para funciones: no emitir ldr, el bl lo maneja visitPostfix
-                $this->emit("    mov     {$destReg}, #0   // ref a {$name}");
+                $this->emit("    mov     {$destReg}, #0   # ref a {$name}");
                 return $destReg;
             }
 
             $offset = $this->localVars[$name];
-            $this->emit("    ldr     {$destReg}, [x29, #{$offset}]   // load {$name}");
+            $this->emit("    ldr     {$destReg}, [x29, #{$offset}]   # load {$name}");
             return $destReg;
         }
 
@@ -1486,7 +1506,7 @@ class CodeGenerator extends GolampiBaseVisitor
         if (preg_match('/^-?\d+\.\d+$/', $text)) {
             // Guardar como string en .data y retornar su dirección
             $label = $this->addString($text);
-            $this->emit("    adrp    {$destReg}, {$label}   // float {$text}");
+            $this->emit("    adrp    {$destReg}, {$label}   # float {$text}");
             $this->emit("    add     {$destReg}, {$destReg}, :lo12:{$label}");
             // Marcar como string para que fmt.Println lo imprima correctamente
             return $destReg;
@@ -1510,23 +1530,23 @@ class CodeGenerator extends GolampiBaseVisitor
         if ($text[0] === "'") {
             $char = substr($text, 1, -1);
             $val  = ord($char);
-            $this->emit("    mov     {$destReg}, #{$val}   // rune '{$char}'");
+            $this->emit("    mov     {$destReg}, #{$val}   # rune '{$char}'");
             return $destReg;
         }
 
         // BOOL
         if ($text === "true") {
-            $this->emit("    mov     {$destReg}, #1   // true");
+            $this->emit("    mov     {$destReg}, #1   # true");
             return $destReg;
         }
         if ($text === "false") {
-            $this->emit("    mov     {$destReg}, #0   // false");
+            $this->emit("    mov     {$destReg}, #0   # false");
             return $destReg;
         }
 
         // NIL
         if ($text === "nil") {
-            $this->emit("    mov     {$destReg}, #0   // nil");
+            $this->emit("    mov     {$destReg}, #0   # nil");
             return $destReg;
         }
 
@@ -1551,9 +1571,9 @@ class CodeGenerator extends GolampiBaseVisitor
 
         // Cada elemento ocupa 8 bytes
         // Ajustamos el stack pointer manualmente
-        $this->emit("    // array literal: reservar espacio en stack");
-        $this->emit("    sub     sp, sp, {$sizeReg}, lsl #3   // size * 8 bytes");
-        $this->emit("    mov     {$baseReg}, sp   // base del array");
+        $this->emit("    # array literal: reservar espacio en stack");
+        $this->emit("    sub     sp, sp, {$sizeReg}, lsl #3   # size * 8 bytes");
+        $this->emit("    mov     {$baseReg}, sp   # base del array");
 
         // Inicializar elementos si se proporcionaron
         if ($ctx->arrayElements() !== null) {
@@ -1561,7 +1581,7 @@ class CodeGenerator extends GolampiBaseVisitor
             foreach ($elements as $i => $elem) {
                 $valReg  = $this->visit($elem->expression());
                 $elemOffset = $i * 8;
-                $this->emit("    str     {$valReg}, [{$baseReg}, #{$elemOffset}]   // arr[{$i}]");
+                $this->emit("    str     {$valReg}, [{$baseReg}, #{$elemOffset}]   # arr[{$i}]");
             }
         }
 
@@ -1641,7 +1661,7 @@ class CodeGenerator extends GolampiBaseVisitor
                 // qué rutina de impresión usar
                 $typeHint = $this->detectTypeHint($expr);
 
-                $this->emit("    // fmt.Println arg[$i] tipo={$typeHint}");
+                $this->emit("    # fmt.Println arg[$i] tipo={$typeHint}");
 
                 switch ($typeHint) {
 
@@ -1656,10 +1676,8 @@ class CodeGenerator extends GolampiBaseVisitor
                                 ["\n", "\t", "\r", '"',  "\\"]
                             , $rawStr);
                             $strLen = strlen($rawStr);
-                            // +1 por el \n que addString agrega
-                            $strLen += 1;
-                            $this->emit("    mov     x0, {$reg}         // str addr");
-                            $this->emit("    mov     x1, #{$strLen}      // str len");
+                            $this->emit("    mov     x0, {$reg}         # str addr");
+                            $this->emit("    mov     x1, #{$strLen}      # str len");
                         } else {
                             // Variable string: usar __strlen
                             $this->requireHelper("__strlen");
@@ -1678,19 +1696,31 @@ class CodeGenerator extends GolampiBaseVisitor
 
                     case "rune":
                         // Imprimir como carácter ASCII via syscall write
-                        $this->emit("    // print rune (1 byte ASCII)");
+                        $this->emit("    # print rune (1 byte ASCII)");
                         $this->emit("    sub     sp, sp, #16");
                         $this->emit("    strb    w{$this->regNum($reg)}, [sp]");
-                        $this->emit("    mov     x0, #1          // stdout");
-                        $this->emit("    mov     x1, sp          // addr");
-                        $this->emit("    mov     x2, #1          // len = 1");
-                        $this->emit("    mov     x8, #64         // syscall write");
+                        $this->emit("    mov     x0, #1          # stdout");
+                        $this->emit("    mov     x1, sp          # addr");
+                        $this->emit("    mov     x2, #1          # len = 1");
+                        $this->emit("    mov     x8, #64         # syscall write");
                         $this->emit("    svc     #0");
                         $this->emit("    add     sp, sp, #16");
                         break;
 
                     case "float32":
                         $this->requireHelper("__strlen");
+                        $this->emit("    mov     x0, {$reg}");
+                        $this->emit("    bl      __strlen");
+                        $this->emit("    mov     x1, x0");
+                        $this->emit("    mov     x0, {$reg}");
+                        $this->emit("    bl      __print_str");
+                        break;
+
+                    case "nil":
+                        $nilLabel = $this->addString("<nil>");
+                        $this->requireHelper("__strlen");
+                        $this->emit("    adrp    {$reg}, {$nilLabel}");
+                        $this->emit("    add     {$reg}, {$reg}, :lo12:{$nilLabel}");
                         $this->emit("    mov     x0, {$reg}");
                         $this->emit("    bl      __strlen");
                         $this->emit("    mov     x1, x0");
@@ -1730,6 +1760,10 @@ class CodeGenerator extends GolampiBaseVisitor
     {
         $text = $expr->getText();
 
+        // nil literal
+        if ($text === "nil") {
+            return "nil";
+        }
         // String literal
         if (strlen($text) >= 2 && $text[0] === '"') {
             return "string";
@@ -1761,6 +1795,13 @@ class CodeGenerator extends GolampiBaseVisitor
                 return "int";
             }
         }
+
+        // Expresiones lógicas/relacionales: detectar por estructura
+        $exprText = $expr->getText();
+        if (preg_match('/&&|\|\||==|!=|<=|>=|<|>|^!/', $exprText)) {
+            return "bool";
+        }
+
         return "int";
     }
 
@@ -1830,45 +1871,45 @@ class CodeGenerator extends GolampiBaseVisitor
             // Imprime el entero en x0 como string decimal
             // ──────────────────────────────────────────────────
             case "__print_int":
-                $this->emitHelper("// ── Helper: __print_int ──────────────────────────");
+                $this->emitHelper("# ── Helper: __print_int ──────────────────────────");
                 $this->emitHelperLabel("__print_int");
                 $this->emitHelper("    stp     x29, x30, [sp, #-64]!");
                 $this->emitHelper("    mov     x29, sp");
-                $this->emitHelper("    mov     x9,  x0            // valor a imprimir");
-                $this->emitHelper("    mov     x10, #0            // contador dígitos");
-                $this->emitHelper("    add     x11, x29, #16      // buffer en stack");
-                $this->emitHelper("    // Caso especial: 0");
+                $this->emitHelper("    mov     x9,  x0            # valor a imprimir");
+                $this->emitHelper("    mov     x10, #0            # contador dígitos");
+                $this->emitHelper("    add     x11, x29, #16      # buffer en stack");
+                $this->emitHelper("    # Caso especial: 0");
                 $this->emitHelper("    cbnz    x9, __pi_neg_check");
-                $this->emitHelper("    mov     w12, #48           // '0'");
+                $this->emitHelper("    mov     w12, #48           # '0'");
                 $this->emitHelper("    strb    w12, [x11]");
-                $this->emitHelper("    mov     x0, #1             // stdout");
+                $this->emitHelper("    mov     x0, #1             # stdout");
                 $this->emitHelper("    mov     x1, x11");
                 $this->emitHelper("    mov     x2, #1");
                 $this->emitHelper("    mov     x8, #64");
                 $this->emitHelper("    svc     #0");
                 $this->emitHelper("    b       __pi_done");
                 $this->emitHelperLabel("__pi_neg_check");
-                $this->emitHelper("    // Negativo?");
+                $this->emitHelper("    # Negativo?");
                 $this->emitHelper("    cmp     x9, #0");
                 $this->emitHelper("    b.ge    __pi_loop");
-                $this->emitHelper("    mov     w12, #45           // '-'");
+                $this->emitHelper("    mov     w12, #45           # '-'");
                 $this->emitHelper("    strb    w12, [x11, x10]");
                 $this->emitHelper("    add     x10, x10, #1");
                 $this->emitHelper("    neg     x9, x9");
                 $this->emitHelperLabel("__pi_loop");
                 $this->emitHelper("    cbz     x9, __pi_reverse");
                 $this->emitHelper("    mov     x13, #10");
-                $this->emitHelper("    udiv    x14, x9, x13       // cociente");
-                $this->emitHelper("    msub    x15, x14, x13, x9  // resto = x9 - cociente*10");
-                $this->emitHelper("    add     x15, x15, #48      // ASCII");
+                $this->emitHelper("    udiv    x14, x9, x13       # cociente");
+                $this->emitHelper("    msub    x15, x14, x13, x9  # resto = x9 - cociente*10");
+                $this->emitHelper("    add     x15, x15, #48      # ASCII");
                 $this->emitHelper("    strb    w15, [x11, x10]");
                 $this->emitHelper("    add     x10, x10, #1");
                 $this->emitHelper("    mov     x9,  x14");
                 $this->emitHelper("    b       __pi_loop");
                 $this->emitHelperLabel("__pi_reverse");
-                $this->emitHelper("    // Invertir dígitos en buffer");
-                $this->emitHelper("    mov     x16, #0            // inicio");
-                $this->emitHelper("    sub     x17, x10, #1       // fin");
+                $this->emitHelper("    # Invertir dígitos en buffer");
+                $this->emitHelper("    mov     x16, #0            # inicio");
+                $this->emitHelper("    sub     x17, x10, #1       # fin");
                 $this->emitHelperLabel("__pi_rev_loop");
                 $this->emitHelper("    cmp     x16, x17");
                 $this->emitHelper("    b.ge    __pi_print");
@@ -1880,10 +1921,10 @@ class CodeGenerator extends GolampiBaseVisitor
                 $this->emitHelper("    sub     x17, x17, #1");
                 $this->emitHelper("    b       __pi_rev_loop");
                 $this->emitHelperLabel("__pi_print");
-                $this->emitHelper("    mov     x0, #1             // stdout");
-                $this->emitHelper("    mov     x1, x11            // buffer");
-                $this->emitHelper("    mov     x2, x10            // longitud");
-                $this->emitHelper("    mov     x8, #64            // syscall write");
+                $this->emitHelper("    mov     x0, #1             # stdout");
+                $this->emitHelper("    mov     x1, x11            # buffer");
+                $this->emitHelper("    mov     x2, x10            # longitud");
+                $this->emitHelper("    mov     x8, #64            # syscall write");
                 $this->emitHelper("    svc     #0");
                 $this->emitHelperLabel("__pi_done");
                 $this->emitHelper("    ldp     x29, x30, [sp], #64");
@@ -1897,14 +1938,14 @@ class CodeGenerator extends GolampiBaseVisitor
             // x1 = longitud
             // ──────────────────────────────────────────────────
             case "__print_str":
-                $this->emitHelper("// ── Helper: __print_str ──────────────────────────");
+                $this->emitHelper("# ── Helper: __print_str ──────────────────────────");
                 $this->emitHelperLabel("__print_str");
                 $this->emitHelper("    stp     x29, x30, [sp, #-16]!");
                 $this->emitHelper("    mov     x29, sp");
-                $this->emitHelper("    mov     x2,  x1            // longitud");
-                $this->emitHelper("    mov     x1,  x0            // dirección");
-                $this->emitHelper("    mov     x0,  #1            // stdout");
-                $this->emitHelper("    mov     x8,  #64           // syscall write");
+                $this->emitHelper("    mov     x2,  x1            # longitud");
+                $this->emitHelper("    mov     x1,  x0            # dirección");
+                $this->emitHelper("    mov     x0,  #1            # stdout");
+                $this->emitHelper("    mov     x8,  #64           # syscall write");
                 $this->emitHelper("    svc     #0");
                 $this->emitHelper("    ldp     x29, x30, [sp], #16");
                 $this->emitHelper("    ret");
@@ -1916,7 +1957,7 @@ class CodeGenerator extends GolampiBaseVisitor
             // x0 = 0 (false) o 1 (true)
             // ──────────────────────────────────────────────────
             case "__print_bool":
-                $this->emitHelper("// ── Helper: __print_bool ─────────────────────────");
+                $this->emitHelper("# ── Helper: __print_bool ─────────────────────────");
                 // Agregar strings true/false al .data
                 $this->emitHelperData("__str_true:  .ascii \"true\"");
                 $this->emitHelperData("__str_true_len = . - __str_true");
@@ -1928,15 +1969,15 @@ class CodeGenerator extends GolampiBaseVisitor
                 $this->emitHelper("    cbnz    x0, __pb_true");
                 $this->emitHelper("    adrp    x1, __str_false");
                 $this->emitHelper("    add     x1, x1, :lo12:__str_false");
-                $this->emitHelper("    mov     x2, #5             // len('false')");
+                $this->emitHelper("    mov     x2, #5             # len('false')");
                 $this->emitHelper("    b       __pb_write");
                 $this->emitHelperLabel("__pb_true");
                 $this->emitHelper("    adrp    x1, __str_true");
                 $this->emitHelper("    add     x1, x1, :lo12:__str_true");
-                $this->emitHelper("    mov     x2, #4             // len('true')");
+                $this->emitHelper("    mov     x2, #4             # len('true')");
                 $this->emitHelperLabel("__pb_write");
-                $this->emitHelper("    mov     x0, #1             // stdout");
-                $this->emitHelper("    mov     x8, #64            // syscall write");
+                $this->emitHelper("    mov     x0, #1             # stdout");
+                $this->emitHelper("    mov     x8, #64            # syscall write");
                 $this->emitHelper("    svc     #0");
                 $this->emitHelper("    ldp     x29, x30, [sp], #16");
                 $this->emitHelper("    ret");
@@ -1947,14 +1988,14 @@ class CodeGenerator extends GolampiBaseVisitor
             // __print_newline
             // ──────────────────────────────────────────────────
             case "__print_newline":
-                $this->emitHelper("// ── Helper: __print_newline ──────────────────────");
+                $this->emitHelper("# ── Helper: __print_newline ──────────────────────");
                 $this->emitHelperData("__newline: .ascii \"\\n\"");
                 $this->emitHelperLabel("__print_newline");
                 $this->emitHelper("    stp     x29, x30, [sp, #-16]!");
                 $this->emitHelper("    mov     x29, sp");
                 $this->emitHelper("    adrp    x0, __newline");
                 $this->emitHelper("    add     x0, x0, :lo12:__newline");
-                $this->emitHelper("    // reordenar para syscall: x0=fd, x1=buf, x2=len");
+                $this->emitHelper("    # reordenar para syscall: x0=fd, x1=buf, x2=len");
                 $this->emitHelper("    mov     x2, #1");
                 $this->emitHelper("    mov     x1, x0");
                 $this->emitHelper("    mov     x0, #1");
@@ -1969,16 +2010,16 @@ class CodeGenerator extends GolampiBaseVisitor
             // __print_space
             // ──────────────────────────────────────────────────
             case "__print_space":
-                $this->emitHelper("// ── Helper: __print_space ────────────────────────");
+                $this->emitHelper("# ── Helper: __print_space ────────────────────────");
                 $this->emitHelperData("__space: .ascii \" \"");
                 $this->emitHelperLabel("__print_space");
                 $this->emitHelper("    stp     x29, x30, [sp, #-16]!");
                 $this->emitHelper("    mov     x29, sp");
                 $this->emitHelper("    adrp    x1, __space");
                 $this->emitHelper("    add     x1, x1, :lo12:__space");
-                $this->emitHelper("    mov     x0, #1             // stdout");
-                $this->emitHelper("    mov     x2, #1             // len");
-                $this->emitHelper("    mov     x8, #64            // syscall write");
+                $this->emitHelper("    mov     x0, #1             # stdout");
+                $this->emitHelper("    mov     x2, #1             # len");
+                $this->emitHelper("    mov     x8, #64            # syscall write");
                 $this->emitHelper("    svc     #0");
                 $this->emitHelper("    ldp     x29, x30, [sp], #16");
                 $this->emitHelper("    ret");
@@ -1987,7 +2028,7 @@ class CodeGenerator extends GolampiBaseVisitor
 
             // AGREGAR antes del cierre del switch en requireHelper() (antes de línea 1925):
             case "__strlen":
-                $this->emitHelper("// ── Helper: __strlen ────────────────────────────");
+                $this->emitHelper("# ── Helper: __strlen ────────────────────────────");
                 $this->emitHelperLabel("__strlen");
                 $this->emitHelper("    stp     x29, x30, [sp, #-16]!");
                 $this->emitHelper("    mov     x29, sp");
@@ -2005,7 +2046,7 @@ class CodeGenerator extends GolampiBaseVisitor
                 break;
 
             case "__memcpy":
-                $this->emitHelper("// ── Helper: __memcpy ────────────────────────────");
+                $this->emitHelper("# ── Helper: __memcpy ────────────────────────────");
                 $this->emitHelperLabel("__memcpy");
                 $this->emitHelper("    stp     x29, x30, [sp, #-16]!");
                 $this->emitHelper("    mov     x29, sp");
@@ -2040,7 +2081,7 @@ class CodeGenerator extends GolampiBaseVisitor
         if (strlen($text) >= 2 && $text[0] === '"') {
             $str = substr($text, 1, -1);
             $len = strlen($str);
-            $this->emit("    mov     {$destReg}, #{$len}   // len(\"{$str}\")");
+            $this->emit("    mov     {$destReg}, #{$len}   # len(\"{$str}\")");
             return $destReg;
         }
 
@@ -2051,7 +2092,7 @@ class CodeGenerator extends GolampiBaseVisitor
             $ptrReg  = $this->nextReg();
 
             // Cargar el valor de la variable
-            $this->emit("    ldr     {$ptrReg}, [x29, #{$offset}]   // load {$varName} for len");
+            $this->emit("    ldr     {$ptrReg}, [x29, #{$offset}]   # load {$varName} for len");
 
             // Si es un string (puntero a .data) → usar __strlen
             // Si es un array → el tamaño debería estar almacenado
@@ -2059,7 +2100,7 @@ class CodeGenerator extends GolampiBaseVisitor
             $this->requireHelper("__strlen");
             $this->emit("    mov     x0, {$ptrReg}");
             $this->emit("    bl      __strlen");
-            $this->emit("    mov     {$destReg}, x0   // len result");
+            $this->emit("    mov     {$destReg}, x0   # len result");
             return $destReg;
         }
 
@@ -2090,7 +2131,7 @@ class CodeGenerator extends GolampiBaseVisitor
         $label    = $this->addString($dateStr);
         $destReg  = $this->nextReg();
 
-        $this->emit("    // now() → \"{$dateStr}\"");
+        $this->emit("    # now() → \"{$dateStr}\"");
         $this->emit("    adrp    {$destReg}, {$label}");
         $this->emit("    add     {$destReg}, {$destReg}, :lo12:{$label}");
 
@@ -2124,30 +2165,30 @@ class CodeGenerator extends GolampiBaseVisitor
         $startReg  = $this->visit($exprs[1]);   // índice inicial
         $lengthReg = $this->visit($exprs[2]);   // longitud deseada
 
-        $this->emit("    // substr(str, start, length)");
+        $this->emit("    # substr(str, start, length)");
 
         // Calcular puntero al inicio de la subcadena: str + start
         $ptrReg = $this->nextReg();
-        $this->emit("    add     {$ptrReg}, {$strReg}, {$startReg}   // ptr = str + start");
+        $this->emit("    add     {$ptrReg}, {$strReg}, {$startReg}   # ptr = str + start");
 
         // Reservar buffer en stack para la subcadena + null terminator
         // Usamos length + 1 bytes, alineado a 16
         $bufReg = $this->nextReg();
-        $this->emit("    sub     sp, sp, #64             // buffer para substr");
-        $this->emit("    mov     {$bufReg}, sp            // destino");
+        $this->emit("    sub     sp, sp, #64             # buffer para substr");
+        $this->emit("    mov     {$bufReg}, sp            # destino");
 
         // Copiar 'length' bytes del origen al destino
         $this->requireHelper("__memcpy");
-        $this->emit("    mov     x0, {$bufReg}            // destino");
-        $this->emit("    mov     x1, {$ptrReg}            // origen = str + start");
-        $this->emit("    mov     x2, {$lengthReg}         // bytes a copiar");
+        $this->emit("    mov     x0, {$bufReg}            # destino");
+        $this->emit("    mov     x1, {$ptrReg}            # origen = str + start");
+        $this->emit("    mov     x2, {$lengthReg}         # bytes a copiar");
         $this->emit("    bl      __memcpy");
 
         // Agregar null terminator
         $this->emit("    add     x9, {$bufReg}, {$lengthReg}");
-        $this->emit("    strb    wzr, [x9]               // null terminator");
+        $this->emit("    strb    wzr, [x9]               # null terminator");
 
-        $this->emit("    mov     {$destReg}, {$bufReg}    // retornar ptr subcadena");
+        $this->emit("    mov     {$destReg}, {$bufReg}    # retornar ptr subcadena");
 
         return $destReg;
     }
@@ -2184,7 +2225,7 @@ class CodeGenerator extends GolampiBaseVisitor
             $label = $this->addString("int32");
         }
 
-        $this->emit("    // typeOf({$text})");
+        $this->emit("    # typeOf({$text})");
         $this->emit("    adrp    {$destReg}, {$label}");
         $this->emit("    add     {$destReg}, {$destReg}, :lo12:{$label}");
 
@@ -2217,11 +2258,11 @@ class CodeGenerator extends GolampiBaseVisitor
     */
     public function getCode(): string
     {
-        $out = "// ================================================\n";
-        $out .= "// Generado por Golampi Compiler\n";
-        $out .= "// Universidad San Carlos de Guatemala\n";
-        $out .= "// Arquitectura: ARM64 (AArch64)\n";
-        $out .= "// ================================================\n\n";
+        $out = "/* ================================================\n";
+        $out .= "   Generado por Golampi Compiler\n";
+        $out .= "   Universidad San Carlos de Guatemala\n";
+        $out .= "   Arquitectura: ARM64 (AArch64)\n";
+        $out .= "   ================================================ */\n\n";
 
         // Sección .data (strings y constantes)
         if ($this->dataSection !== "") {
@@ -2287,7 +2328,7 @@ class CodeGenerator extends GolampiBaseVisitor
         $baseReg = $this->nextReg();
 
         // Cargar dirección base del array
-        $this->emit("    add     {$baseReg}, x29, #{$offset}   // base {$arrName}");
+        $this->emit("    add     {$baseReg}, x29, #{$offset}   # base {$arrName}");
 
         foreach ($indices as $idxReg) {
             $addrReg = $this->nextReg();
@@ -2296,7 +2337,7 @@ class CodeGenerator extends GolampiBaseVisitor
         }
 
         $destReg = $this->nextReg();
-        $this->emit("    ldr     {$destReg}, [{$baseReg}]   // load array elem");
+        $this->emit("    ldr     {$destReg}, [{$baseReg}]   # load array elem");
 
         return $destReg;
     }
