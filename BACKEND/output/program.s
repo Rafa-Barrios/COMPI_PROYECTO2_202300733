@@ -11,6 +11,11 @@ __str_true_len = . - __str_true
 __str_false: .ascii "false"
 __str_false_len = . - __str_false
 __newline: .ascii "\n"
+str_0: .asciz "Suma:"
+__space: .ascii " "
+str_1: .asciz "Asignacion:"
+str_2: .asciz "mayor que 5"
+str_3: .asciz "menor o igual a 5"
 
 .section .text
 .align 2
@@ -22,51 +27,116 @@ _start:
     mov     x8, #93        // syscall exit
     svc     #0
 
+# ── Función: suma ──────────────────────────
+suma:
+    stp     x29, x30, [sp, #-16]!   // salvar fp y lr
+    mov     x29, sp
+    sub     sp, sp, #512   // espacio variables locales
+    str     x0, [x29, #-8]   // param: a
+    str     x1, [x29, #-16]   // param: b
+    ldr     x9, [x29, #-8]   // load a
+    ldr     x10, [x29, #-16]   // load b
+    add     x11, x9, x10
+    mov     x0, x11   // return value
+    b       suma_end   // return
+suma_end:
+    add     sp, sp, #512   // liberar variables locales
+    ldp     x29, x30, [sp], #16      // restaurar fp y lr
+    ret
+
 # ── Función: main ──────────────────────────
 main:
     stp     x29, x30, [sp, #-16]!   // salvar fp y lr
     mov     x29, sp
     sub     sp, sp, #496   // espacio variables locales
-    mov     x9, #10
-    str     x9, [x29, #-8]   // decl a
-    mov     x10, #3
-    str     x10, [x29, #-16]   // decl b
-    ldr     x11, [x29, #-8]   // load a
-    ldr     x12, [x29, #-16]   // load b
-    add     x13, x11, x12
+    mov     x9, #0   // ref a suma
+    str     x9, [x29, #-8]   // var resultado
+    adrp    x10, str_0
+    add     x10, x10, :lo12:str_0
+    // fmt.Println arg[0] tipo=string
+    mov     x0, x10         // str addr
+    mov     x1, #5      // str len
+    bl      __print_str
+    bl      __print_space
+    ldr     x11, [x29, #-8]   // load resultado
+    // fmt.Println arg[1] tipo=int
+    mov     x0, x11
+    bl      __print_int
+    bl      __print_newline
+    mov     x12, #100
+    str     x12, [x29, #-16]   // var a
+    mov     x13, #200
+    str     x13, [x29, #-24]   // var b
+    ldr     x14, [x29, #-24]   // load b
+    str     x14, [x29, #-16]   // a = val
+    adrp    x15, str_1
+    add     x15, x15, :lo12:str_1
+    // fmt.Println arg[0] tipo=string
+    mov     x0, x15         // str addr
+    mov     x1, #11      // str len
+    bl      __print_str
+    bl      __print_space
+    ldr     x9, [x29, #-16]   // load a
+    // fmt.Println arg[1] tipo=int
+    mov     x0, x9
+    bl      __print_int
+    bl      __print_newline
+    mov     x10, #7
+    str     x10, [x29, #-32]   // var x
+    ldr     x11, [x29, #-32]   // load x
+    mov     x12, #5
+    cmp     x11, x12
+    b.gt    rel_true_2
+    mov     x13, #0
+    b       rel_end_3
+rel_true_2:
+    mov     x13, #1
+rel_end_3:
+    cmp     x13, #0
+    b.eq    if_else_0
+    adrp    x14, str_2
+    add     x14, x14, :lo12:str_2
+    // fmt.Println arg[0] tipo=string
+    mov     x0, x14         // str addr
+    mov     x1, #11      // str len
+    bl      __print_str
+    bl      __print_newline
+    b       if_end_1
+if_else_0:
+    adrp    x15, str_3
+    add     x15, x15, :lo12:str_3
+    // fmt.Println arg[0] tipo=string
+    mov     x0, x15         // str addr
+    mov     x1, #17      // str len
+    bl      __print_str
+    bl      __print_newline
+if_end_1:
+    mov     x9, #1
+    str     x9, [x29, #-40]   // var i
+for_start_4:
+    ldr     x10, [x29, #-40]   // load i
+    mov     x11, #4
+    cmp     x10, x11
+    b.lt    rel_true_7
+    mov     x12, #0
+    b       rel_end_8
+rel_true_7:
+    mov     x12, #1
+rel_end_8:
+    cmp     x12, #0
+    b.eq    for_end_6
+    ldr     x13, [x29, #-40]   // load i
     // fmt.Println arg[0] tipo=int
     mov     x0, x13
     bl      __print_int
     bl      __print_newline
-    ldr     x14, [x29, #-8]   // load a
-    ldr     x15, [x29, #-16]   // load b
-    sub     x9, x14, x15
-    // fmt.Println arg[0] tipo=int
-    mov     x0, x9
-    bl      __print_int
-    bl      __print_newline
-    ldr     x10, [x29, #-8]   // load a
-    ldr     x11, [x29, #-16]   // load b
-    mul     x12, x10, x11
-    // fmt.Println arg[0] tipo=int
-    mov     x0, x12
-    bl      __print_int
-    bl      __print_newline
-    ldr     x13, [x29, #-8]   // load a
-    ldr     x14, [x29, #-16]   // load b
-    sdiv    x15, x13, x14
-    // fmt.Println arg[0] tipo=int
-    mov     x0, x15
-    bl      __print_int
-    bl      __print_newline
-    ldr     x9, [x29, #-8]   // load a
-    ldr     x10, [x29, #-16]   // load b
-    sdiv    x12, x9, x10
-    msub    x11, x12, x10, x9
-    // fmt.Println arg[0] tipo=int
-    mov     x0, x11
-    bl      __print_int
-    bl      __print_newline
+    mov     x14, #1
+    ldr     x15, [x29, #-40]   // load i
+    add     x9, x15, x14
+    str     x9, [x29, #-40]   // i = val
+for_update_5:
+    b       for_start_4
+for_end_6:
 main_end:
     add     sp, sp, #496   // liberar variables locales
     ldp     x29, x30, [sp], #16      // restaurar fp y lr
@@ -175,6 +245,19 @@ __print_newline:
     mov     x1, x0
     mov     x0, #1
     mov     x8, #64
+    svc     #0
+    ldp     x29, x30, [sp], #16
+    ret
+
+# ── Helper: __print_space ────────────────────────
+__print_space:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+    adrp    x1, __space
+    add     x1, x1, :lo12:__space
+    mov     x0, #1             // stdout
+    mov     x2, #1             // len
+    mov     x8, #64            // syscall write
     svc     #0
     ldp     x29, x30, [sp], #16
     ret
