@@ -1074,7 +1074,7 @@ class CodeGenerator extends GolampiBaseVisitor
     }
 
     /*
-    ========================
+    =========================
     LOGICAL AND  &&
     cortocircuito
     ========================
