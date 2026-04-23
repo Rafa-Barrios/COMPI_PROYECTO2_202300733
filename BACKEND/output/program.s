@@ -50,90 +50,96 @@ main:
     mov     x29, sp
     sub     sp, sp, #496   // espacio variables locales
     mov     x9, #0   // ref a suma
-    str     x9, [x29, #-8]   // var resultado
-    adrp    x10, str_0
-    add     x10, x10, :lo12:str_0
+    mov     x10, #8
+    mov     x0, x10   // arg[0]
+    mov     x11, #5
+    mov     x1, x11   // arg[1]
+    bl      suma   // call suma
+    mov     x12, x0   // return value
+    str     x12, [x29, #-8]   // var resultado
+    adrp    x13, str_0
+    add     x13, x13, :lo12:str_0
     // fmt.Println arg[0] tipo=string
-    mov     x0, x10         // str addr
+    mov     x0, x13         // str addr
     mov     x1, #5      // str len
     bl      __print_str
     bl      __print_space
-    ldr     x11, [x29, #-8]   // load resultado
+    ldr     x14, [x29, #-8]   // load resultado
     // fmt.Println arg[1] tipo=int
-    mov     x0, x11
+    mov     x0, x14
     bl      __print_int
     bl      __print_newline
-    mov     x12, #100
-    str     x12, [x29, #-16]   // var a
-    mov     x13, #200
-    str     x13, [x29, #-24]   // var b
-    ldr     x14, [x29, #-24]   // load b
-    str     x14, [x29, #-16]   // a = val
-    adrp    x15, str_1
-    add     x15, x15, :lo12:str_1
+    mov     x15, #100
+    str     x15, [x29, #-16]   // var a
+    mov     x9, #200
+    str     x9, [x29, #-24]   // var b
+    ldr     x10, [x29, #-24]   // load b
+    str     x10, [x29, #-16]   // a = val
+    adrp    x11, str_1
+    add     x11, x11, :lo12:str_1
     // fmt.Println arg[0] tipo=string
-    mov     x0, x15         // str addr
+    mov     x0, x11         // str addr
     mov     x1, #11      // str len
     bl      __print_str
     bl      __print_space
-    ldr     x9, [x29, #-16]   // load a
+    ldr     x12, [x29, #-16]   // load a
     // fmt.Println arg[1] tipo=int
-    mov     x0, x9
+    mov     x0, x12
     bl      __print_int
     bl      __print_newline
-    mov     x10, #7
-    str     x10, [x29, #-32]   // var x
-    ldr     x11, [x29, #-32]   // load x
-    mov     x12, #5
-    cmp     x11, x12
+    mov     x13, #7
+    str     x13, [x29, #-32]   // var x
+    ldr     x14, [x29, #-32]   // load x
+    mov     x15, #5
+    cmp     x14, x15
     b.gt    rel_true_2
-    mov     x13, #0
+    mov     x9, #0
     b       rel_end_3
 rel_true_2:
-    mov     x13, #1
+    mov     x9, #1
 rel_end_3:
-    cmp     x13, #0
+    cmp     x9, #0
     b.eq    if_else_0
-    adrp    x14, str_2
-    add     x14, x14, :lo12:str_2
+    adrp    x10, str_2
+    add     x10, x10, :lo12:str_2
     // fmt.Println arg[0] tipo=string
-    mov     x0, x14         // str addr
+    mov     x0, x10         // str addr
     mov     x1, #11      // str len
     bl      __print_str
     bl      __print_newline
     b       if_end_1
 if_else_0:
-    adrp    x15, str_3
-    add     x15, x15, :lo12:str_3
+    adrp    x11, str_3
+    add     x11, x11, :lo12:str_3
     // fmt.Println arg[0] tipo=string
-    mov     x0, x15         // str addr
+    mov     x0, x11         // str addr
     mov     x1, #17      // str len
     bl      __print_str
     bl      __print_newline
 if_end_1:
-    mov     x9, #1
-    str     x9, [x29, #-40]   // var i
+    mov     x12, #1
+    str     x12, [x29, #-40]   // var i
 for_start_4:
-    ldr     x10, [x29, #-40]   // load i
-    mov     x11, #4
-    cmp     x10, x11
+    ldr     x13, [x29, #-40]   // load i
+    mov     x14, #4
+    cmp     x13, x14
     b.lt    rel_true_7
-    mov     x12, #0
+    mov     x15, #0
     b       rel_end_8
 rel_true_7:
-    mov     x12, #1
+    mov     x15, #1
 rel_end_8:
-    cmp     x12, #0
+    cmp     x15, #0
     b.eq    for_end_6
-    ldr     x13, [x29, #-40]   // load i
+    ldr     x9, [x29, #-40]   // load i
     // fmt.Println arg[0] tipo=int
-    mov     x0, x13
+    mov     x0, x9
     bl      __print_int
     bl      __print_newline
-    mov     x14, #1
-    ldr     x15, [x29, #-40]   // load i
-    add     x9, x15, x14
-    str     x9, [x29, #-40]   // i = val
+    mov     x10, #1
+    ldr     x11, [x29, #-40]   // load i
+    add     x12, x11, x10
+    str     x12, [x29, #-40]   // i = val
 for_update_5:
     b       for_start_4
 for_end_6:

@@ -1368,16 +1368,16 @@ class CodeGenerator extends GolampiBaseVisitor
                     $args = $child->exprList()->expression();
                     foreach ($args as $j => $arg) {
                         $argReg = $this->visit($arg);
-                        $this->emit("    mov     x{$j}, {$argReg}   # arg[{$j}]");
+                        $this->emit("    mov     x{$j}, {$argReg}   // arg[{$j}]");
                     }
                 }
 
                 // Llamar a la función
-                $this->emit("    bl      {$varName}   # call {$varName}");
+                $this->emit("    bl      {$varName}   // call {$varName}");
 
                 // El resultado queda en x0
                 $destReg = $this->nextReg();
-                $this->emit("    mov     {$destReg}, x0   # return value");
+                $this->emit("    mov     {$destReg}, x0   // return value");
                 $value = $destReg;
 
 
