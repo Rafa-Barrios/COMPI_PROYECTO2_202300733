@@ -300,6 +300,11 @@ class CodeGenerator extends GolampiBaseVisitor
                 $this->localVars[$paramName] = $offset;
                 $this->emit("    str     x{$i}, [x29, #{$offset}]   // param: {$paramName}");
                 $this->environment->define($paramName, $offset);
+                // AGREGAR después de environment->define en el foreach de parámetros:
+                $paramFullText = $param->getText(); // ej: "arr*[5]int32" o "x*int32"
+                if (str_contains($paramFullText, '*')) {
+                    $this->varTypes[$paramName] = "pointer";
+                }
                 \SymbolTable::add($paramName, "parametro", $name, "—",
                     $param->getStart()->getLine(),
                     $param->getStart()->getCharPositionInLine());
@@ -910,10 +915,21 @@ class CodeGenerator extends GolampiBaseVisitor
                 $this->emit("    mov     {$idxReg}, #0   // índice desconocido");
             }
 
-            // Calcular dirección: base + index * 8
+            // REEMPLAZAR el bloque completo de cálculo de base (donde están $baseReg y $addrReg):
             $baseReg = $this->nextReg();
             $addrReg = $this->nextReg();
-            $this->emit("    add     {$baseReg}, x29, #{$baseOffset}   // base de {$arrName}");
+            if (isset($this->varTypes[$arrName]) && $this->varTypes[$arrName] === "pointer") {
+                // puntero a array: necesita doble deref
+                // Paso 1: cargar el puntero del slot local
+                $ptrReg = $baseReg;
+                $this->emit("    ldr     {$ptrReg}, [x29, #{$baseOffset}]   // load ptr → &arr_caller");
+                // Paso 2: deref para obtener la base real del array
+                $baseReg = $this->nextReg();
+                $this->emit("    ldr     {$baseReg}, [{$ptrReg}]             // deref → base real de {$arrName}");
+            } else {
+                // array local: [x29, #offset] guarda directamente la base del array
+                $this->emit("    ldr     {$baseReg}, [x29, #{$baseOffset}]   // base de {$arrName}");
+            }
             $this->emit("    add     {$addrReg}, {$baseReg}, {$idxReg}, lsl #3   // addr {$arrName}[i]");
             
             // Aplicar operador compuesto si corresponde
@@ -1418,16 +1434,19 @@ class CodeGenerator extends GolampiBaseVisitor
                 $addrReg = $this->nextReg();
                 $loadReg = $this->nextReg();
 
-                // Calcular dirección base: x29 + offset de la variable
-                if ($varName !== null && isset($this->localVars[$varName])) {
-                    $offset = $this->localVars[$varName];
-                    $this->emit("    add     {$baseReg}, x29, #{$offset}   // base {$varName}");
+                // $value ya tiene el contenido del slot de la variable (cargado por visitPrimary con ldr)
+                // Para array local: $value = base del array → usar directo
+                // Para puntero a array: $value = &arr_en_llamador → deref extra para obtener base
+                if ($varName !== null &&
+                    isset($this->varTypes[$varName]) &&
+                    $this->varTypes[$varName] === "pointer") {
+                    // Deref: cargar la base real del array desde la dirección apuntada
+                    $this->emit("    ldr     {$baseReg}, [{$value}]   // deref ptr → base real de {$varName}");
                 } else {
-                    // Ya tenemos la dirección base en $value (acceso encadenado a[i][j])
-                    $this->emit("    mov     {$baseReg}, {$value}");
+                    // $value ya es la base del array
+                    $this->emit("    mov     {$baseReg}, {$value}   // base de {$varName}");
                 }
 
-                // addr = base + index * 8
                 $this->emit("    add     {$addrReg}, {$baseReg}, {$idxReg}, lsl #3   // {$varName}[i]");
                 $this->emit("    ldr     {$loadReg}, [{$addrReg}]   // load elem");
                 $value = $loadReg;
@@ -1534,13 +1553,18 @@ class CodeGenerator extends GolampiBaseVisitor
             return $destReg;
         }
 
-        // FLOAT: guardar parte entera y decimal por separado
+        // REEMPLAZAR bloque FLOAT:
         if (preg_match('/^-?\d+\.\d+$/', $text)) {
-            // Guardar como string en .data y retornar su dirección
-            $label = $this->addString($text);
-            $this->emit("    adrp    {$destReg}, {$label}   // float {$text}");
-            $this->emit("    add     {$destReg}, {$destReg}, :lo12:{$label}");
-            // Marcar como string para que fmt.Println lo imprima correctamente
+            $parts = explode('.', $text);
+            if (intval($parts[1]) === 0) {
+                // Float de parte decimal cero (10.0, 3.0, 15.0) → tratar como entero
+                $this->emit("    mov     {$destReg}, #{$parts[0]}   // float {$text} como entero");
+            } else {
+                // Float con decimales reales (3.14, 9.75) → guardar como string para imprimir
+                $label = $this->addString($text);
+                $this->emit("    adrp    {$destReg}, {$label}   // float {$text}");
+                $this->emit("    add     {$destReg}, {$destReg}, :lo12:{$label}");
+            }
             return $destReg;
         }
 
