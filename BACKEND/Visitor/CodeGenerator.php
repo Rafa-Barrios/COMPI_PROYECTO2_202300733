@@ -372,8 +372,26 @@ class CodeGenerator extends GolampiBaseVisitor
                 $reg = $values[$i];
                 $this->emit("    str     {$reg}, [x29, #{$offset}]   // var {$varName}");
             } else {
-                // Valor por defecto: 0
-                $this->emit("    str     xzr, [x29, #{$offset}]   // var {$varName} = default");
+                // Valor por defecto según tipo
+                $typeName = $this->resolveTypeName($ctx->type());
+                if ($typeName === "string") {
+                    // string vacío: puntero a cadena ""
+                    $emptyLabel = $this->addString("");
+                    $defReg = $this->nextReg();
+                    $this->emit("    adrp    {$defReg}, {$emptyLabel}");
+                    $this->emit("    add     {$defReg}, {$defReg}, :lo12:{$emptyLabel}");
+                    $this->emit("    str     {$defReg}, [x29, #{$offset}]   // var {$varName} = \"\"");
+                } elseif ($typeName === "float32") {
+                    // float por defecto: puntero a "0.0"
+                    $zeroLabel = $this->addString("0.0");
+                    $defReg = $this->nextReg();
+                    $this->emit("    adrp    {$defReg}, {$zeroLabel}");
+                    $this->emit("    add     {$defReg}, {$defReg}, :lo12:{$zeroLabel}");
+                    $this->emit("    str     {$defReg}, [x29, #{$offset}]   // var {$varName} = 0.0");
+                } else {
+                    // int32, bool, rune → 0
+                    $this->emit("    str     xzr, [x29, #{$offset}]   // var {$varName} = default");
+                }
             }
 
             $typeName = $this->resolveTypeName($ctx->type());
