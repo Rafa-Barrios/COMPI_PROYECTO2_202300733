@@ -1727,16 +1727,9 @@ class CodeGenerator extends GolampiBaseVisitor
                         break;
 
                     case "rune":
-                        // Imprimir como carácter ASCII via syscall write
-                        $this->emit("    // print rune (1 byte ASCII)");
-                        $this->emit("    sub     sp, sp, #16");
-                        $this->emit("    strb    w{$this->regNum($reg)}, [sp]");
-                        $this->emit("    mov     x0, #1          // stdout");
-                        $this->emit("    mov     x1, sp          // addr");
-                        $this->emit("    mov     x2, #1          // len = 1");
-                        $this->emit("    mov     x8, #64         // syscall write");
-                        $this->emit("    svc     #0");
-                        $this->emit("    add     sp, sp, #16");
+                        // En Golampi fmt.Println de rune imprime el valor entero ASCII
+                        $this->emit("    mov     x0, {$reg}");
+                        $this->emit("    bl      __print_int");
                         break;
 
                     case "float32":
@@ -1821,11 +1814,16 @@ class CodeGenerator extends GolampiBaseVisitor
             if (isset($this->varTypes[$text])) {
                 $t = $this->varTypes[$text];
                 if ($t === "string")  return "string";
-                if ($t === "bool")    return "bool";
+                if ($t === "bool" || $t === "booleano") return "bool";
                 if ($t === "float32") return "float32";
                 if ($t === "rune")    return "rune";
                 return "int";
             }
+        }
+
+        // AGREGAR justo antes del if del regex bool (línea 1826):
+        if (str_contains($text, 'nil')) {
+            return "nil";
         }
 
         // Expresiones lógicas/relacionales: detectar por estructura
@@ -1844,6 +1842,12 @@ class CodeGenerator extends GolampiBaseVisitor
         if (strlen($text) >= 2 && $text[0] === '"')  return "string";
         if (strlen($text) >= 3 && $text[0] === "'")  return "rune";
         if ($text === "true" || $text === "false")    return "bool";
+        if (preg_match('/&&|\|\|/', $text) || str_starts_with($text, '!')) {
+            return "booleano";
+        }
+        if (preg_match('/==|!=|<=|>=|<(?!=)|>(?!=)/', $text)) {
+            return "booleano";
+        }
         if (preg_match('/^-?\d+\.\d+$/', $text))     return "float32";
         if (preg_match('/^-?\d+$/', $text))          return "int32";
         return "int32";
