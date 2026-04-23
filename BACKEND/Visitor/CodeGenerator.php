@@ -1251,10 +1251,21 @@ class CodeGenerator extends GolampiBaseVisitor
                     $this->emit("    mul     {$destReg}, {$result}, {$right}");
                     break;
                 case "/":
+                    $labelOk = $this->newLabel("div_ok");
+                    $this->emit("    cbnz    {$right}, {$labelOk}   // check div by zero");
+                    $this->emit("    mov     x0, #0");
+                    $this->emit("    mov     x8, #93               // exit si div/0");
+                    $this->emit("    svc     #0");
+                    $this->emitLabel($labelOk);
                     $this->emit("    sdiv    {$destReg}, {$result}, {$right}");
                     break;
                 case "%":
-                    // ARM64 no tiene mod directo: a % b = a - (a/b)*b
+                    $labelOkMod = $this->newLabel("mod_ok");
+                    $this->emit("    cbnz    {$right}, {$labelOkMod}   // check mod by zero");
+                    $this->emit("    mov     x0, #0");
+                    $this->emit("    mov     x8, #93");
+                    $this->emit("    svc     #0");
+                    $this->emitLabel($labelOkMod);
                     $divReg = $this->nextReg();
                     $this->emit("    sdiv    {$divReg}, {$result}, {$right}");
                     $this->emit("    msub    {$destReg}, {$divReg}, {$right}, {$result}");
