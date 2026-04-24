@@ -425,8 +425,29 @@ class CodeGenerator extends GolampiBaseVisitor
     {
         $ids    = $ctx->idList()->ID();
         $values = [];
+        $exprs  = $ctx->exprList()->expression();
 
-        foreach ($ctx->exprList()->expression() as $expr) {
+        // Si hay 1 sola expresión pero múltiples IDs: función con múltiple retorno
+        // Los valores extra vienen en x1, x2, x3... después del bl
+        if (count($exprs) === 1 && count($ctx->idList()->ID()) > 1) {
+            $this->visit($exprs[0]); // ejecuta el bl, x0..x7 quedan con los retornos
+            $retRegs = ['x0','x1','x2','x3','x4','x5','x6','x7'];
+            foreach ($ctx->idList()->ID() as $i => $id) {
+                $varName = $id->getText();
+                $offset  = $this->allocStack();
+                $this->localVars[$varName] = $offset;
+                $reg = $retRegs[$i] ?? 'xzr';
+                $this->emit("    str     {$reg}, [x29, #{$offset}]   // decl {$varName} (ret {$i})");
+                $this->varTypes[$varName] = "int32";
+                $line = $id->getSymbol()->getLine();
+                $col  = $id->getSymbol()->getCharPositionInLine();
+                $this->environment->define($varName, $offset, $line, $col);
+                \SymbolTable::add($varName, "int32", $this->currentScope, "—", $line, $col);
+            }
+            return null;
+        }
+
+        foreach ($exprs as $expr) {
             $values[] = $this->visit($expr);
         }
 
@@ -1276,13 +1297,23 @@ class CodeGenerator extends GolampiBaseVisitor
         $result = $this->visit($uns[0]);
 
         for ($i = 1; $i < count($uns); $i++) {
+            // Guardar operando izquierdo en stack antes de evaluar el derecho
+            // (el derecho puede hacer un bl que destruye los registros temporales)
+            $saveSlot  = $this->allocStack();
+            $this->emit("    str     {$result}, [x29, #{$saveSlot}]   // save left operand");
+
             $right   = $this->visit($uns[$i]);
             $op      = $ctx->getChild(2 * $i - 1)->getText();
+
+            // Recargar operando izquierdo (puede haberse destruido por bl en el right)
+            $leftReg = $this->nextReg();
+            $this->emit("    ldr     {$leftReg}, [x29, #{$saveSlot}]   // reload left operand");
+
             $destReg = $this->nextReg();
 
             switch ($op) {
                 case "*":
-                    $this->emit("    mul     {$destReg}, {$result}, {$right}");
+                    $this->emit("    mul     {$destReg}, {$leftReg}, {$right}");
                     break;
                 case "/":
                     $labelOk = $this->newLabel("div_ok");
@@ -1291,7 +1322,7 @@ class CodeGenerator extends GolampiBaseVisitor
                     $this->emit("    mov     x8, #93               // exit si div/0");
                     $this->emit("    svc     #0");
                     $this->emitLabel($labelOk);
-                    $this->emit("    sdiv    {$destReg}, {$result}, {$right}");
+                    $this->emit("    sdiv    {$destReg}, {$leftReg}, {$right}");
                     break;
                 case "%":
                     $labelOkMod = $this->newLabel("mod_ok");
@@ -1301,8 +1332,8 @@ class CodeGenerator extends GolampiBaseVisitor
                     $this->emit("    svc     #0");
                     $this->emitLabel($labelOkMod);
                     $divReg = $this->nextReg();
-                    $this->emit("    sdiv    {$divReg}, {$result}, {$right}");
-                    $this->emit("    msub    {$destReg}, {$divReg}, {$right}, {$result}");
+                    $this->emit("    sdiv    {$divReg}, {$leftReg}, {$right}");
+                    $this->emit("    msub    {$destReg}, {$divReg}, {$right}, {$leftReg}");
                     break;
             }
 
@@ -1856,6 +1887,11 @@ class CodeGenerator extends GolampiBaseVisitor
             return "bool";
         }
 
+        // Builtins que retornan string
+        if (preg_match('/^now\s*\(/', $text))    return "string";
+        if (preg_match('/^substr\s*\(/', $text)) return "string";
+        if (preg_match('/^typeOf\s*\(/', $text)) return "string";
+
         return "int";
     }
 
@@ -2148,15 +2184,19 @@ class CodeGenerator extends GolampiBaseVisitor
         // ── Variable ──────────────────────────────────────────
         $varName = trim($text);
         if (isset($this->localVars[$varName])) {
-            $offset  = $this->localVars[$varName];
-            $ptrReg  = $this->nextReg();
+            $offset = $this->localVars[$varName];
 
-            // Cargar el valor de la variable
+            // Si es un array: retornar tamaño declarado directamente
+            if (isset($this->varTypes[$varName]) &&
+                str_starts_with($this->varTypes[$varName], 'array:')) {
+                $size = (int) explode(':', $this->varTypes[$varName])[1];
+                $this->emit("    mov     {$destReg}, #{$size}   // len({$varName}) array size");
+                return $destReg;
+            }
+
+            // Si es un string: usar __strlen
+            $ptrReg = $this->nextReg();
             $this->emit("    ldr     {$ptrReg}, [x29, #{$offset}]   // load {$varName} for len");
-
-            // Si es un string (puntero a .data) → usar __strlen
-            // Si es un array → el tamaño debería estar almacenado
-            // Por simplicidad usamos __strlen para ambos casos
             $this->requireHelper("__strlen");
             $this->emit("    mov     x0, {$ptrReg}");
             $this->emit("    bl      __strlen");

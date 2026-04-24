@@ -36,7 +36,7 @@ str_20: .asciz "len(texto):"
 str_21: .asciz "len(arrLen):"
 str_22: .asciz "\n--- 4.3 NOW ---"
 str_23: .asciz "Fecha actual:"
-str_24: .asciz "2026-04-23 17:24:28"
+str_24: .asciz "2026-04-23 23:22:07"
 str_25: .asciz "\n--- 4.4 SUBSTR ---"
 str_26: .asciz "substr:"
 str_27: .asciz "Organizacion de Lenguajes"
@@ -233,9 +233,9 @@ main:
     mov     x1, x12   // arg[1]
     bl      division   // call division
     mov     x13, x0   // return value
-    str     x13, [x29, #-32]   // decl cociente
-    str     xzr, [x29, #-40]   // decl residuo
-    str     xzr, [x29, #-48]   // decl valido
+    str     x0, [x29, #-32]   // decl cociente (ret 0)
+    str     x1, [x29, #-40]   // decl residuo (ret 1)
+    str     x2, [x29, #-48]   // decl valido (ret 2)
     ldr     x14, [x29, #-48]   // load valido
     cmp     x14, #0
     b.eq    if_end_1
@@ -303,8 +303,8 @@ if_end_1:
     mov     x1, x14   // arg[1]
     bl      euclides   // call euclides
     mov     x15, x0   // return value
-    str     x15, [x29, #-56]   // decl mcd
-    str     xzr, [x29, #-64]   // decl pasos
+    str     x0, [x29, #-56]   // decl mcd (ret 0)
+    str     x1, [x29, #-64]   // decl pasos (ret 1)
     adrp    x9, str_13
     add     x9, x9, :lo12:str_13
     // fmt.Println arg[0] tipo=string
@@ -420,12 +420,15 @@ if_end_1:
     mov     x1, #13      // str len
     bl      __print_str
     bl      __print_space
-    // now() → "2026-04-23 17:24:28"
+    // now() → "2026-04-23 23:22:07"
     adrp    x13, str_24
     add     x13, x13, :lo12:str_24
-    // fmt.Println arg[1] tipo=int
+    // fmt.Println arg[1] tipo=string
     mov     x0, x13
-    bl      __print_int
+    bl      __strlen
+    mov     x1, x0
+    mov     x0, x13
+    bl      __print_str
     bl      __print_newline
     adrp    x14, str_25
     add     x14, x14, :lo12:str_25
@@ -456,9 +459,12 @@ if_end_1:
     add     x9, x14, x12
     strb    wzr, [x9]               // null terminator
     mov     x9, x14    // retornar ptr subcadena
-    // fmt.Println arg[1] tipo=int
+    // fmt.Println arg[1] tipo=string
     mov     x0, x9
-    bl      __print_int
+    bl      __strlen
+    mov     x1, x0
+    mov     x0, x9
+    bl      __print_str
     bl      __print_newline
     adrp    x15, str_28
     add     x15, x15, :lo12:str_28
@@ -477,9 +483,12 @@ if_end_1:
     // typeOf(42)
     adrp    x10, str_30
     add     x10, x10, :lo12:str_30
-    // fmt.Println arg[1] tipo=int
+    // fmt.Println arg[1] tipo=string
     mov     x0, x10
-    bl      __print_int
+    bl      __strlen
+    mov     x1, x0
+    mov     x0, x10
+    bl      __print_str
     bl      __print_newline
     adrp    x11, str_31
     add     x11, x11, :lo12:str_31
@@ -491,9 +500,12 @@ if_end_1:
     // typeOf(3.14)
     adrp    x12, str_32
     add     x12, x12, :lo12:str_32
-    // fmt.Println arg[1] tipo=int
+    // fmt.Println arg[1] tipo=string
     mov     x0, x12
-    bl      __print_int
+    bl      __strlen
+    mov     x1, x0
+    mov     x0, x12
+    bl      __print_str
     bl      __print_newline
     adrp    x13, str_33
     add     x13, x13, :lo12:str_33
@@ -505,9 +517,12 @@ if_end_1:
     // typeOf(true)
     adrp    x14, str_34
     add     x14, x14, :lo12:str_34
-    // fmt.Println arg[1] tipo=int
+    // fmt.Println arg[1] tipo=string
     mov     x0, x14
-    bl      __print_int
+    bl      __strlen
+    mov     x1, x0
+    mov     x0, x14
+    bl      __print_str
     bl      __print_newline
     adrp    x15, str_35
     add     x15, x15, :lo12:str_35
@@ -519,9 +534,12 @@ if_end_1:
     // typeOf("texto")
     adrp    x9, str_36
     add     x9, x9, :lo12:str_36
-    // fmt.Println arg[1] tipo=int
+    // fmt.Println arg[1] tipo=string
     mov     x0, x9
-    bl      __print_int
+    bl      __strlen
+    mov     x1, x0
+    mov     x0, x9
+    bl      __print_str
     bl      __print_newline
     adrp    x10, str_37
     add     x10, x10, :lo12:str_37
@@ -574,18 +592,24 @@ calcularVolumenPiramide:
     str     x0, [x29, #-8]   // param: base
     str     x1, [x29, #-16]   // param: altura
     ldr     x9, [x29, #-8]   // load base
+    str     x9, [x29, #-24]   // save left operand
     ldr     x10, [x29, #-8]   // load base
-    mul     x11, x9, x10
-    ldr     x12, [x29, #-16]   // load altura
-    mul     x13, x11, x12
-    mov     x14, #3   // float 3.0 como entero
-    cbnz    x14, div_ok_2   // check div by zero
+    ldr     x11, [x29, #-24]   // reload left operand
+    mul     x12, x11, x10
+    str     x12, [x29, #-32]   // save left operand
+    ldr     x13, [x29, #-16]   // load altura
+    ldr     x14, [x29, #-32]   // reload left operand
+    mul     x15, x14, x13
+    str     x15, [x29, #-40]   // save left operand
+    mov     x9, #3   // float 3.0 como entero
+    ldr     x10, [x29, #-40]   // reload left operand
+    cbnz    x9, div_ok_2   // check div by zero
     mov     x0, #0
     mov     x8, #93               // exit si div/0
     svc     #0
 div_ok_2:
-    sdiv    x15, x13, x14
-    mov     x0, x15   // return value
+    sdiv    x11, x10, x9
+    mov     x0, x11   // return value
     b       calcularVolumenPiramide_end   // return
 calcularVolumenPiramide_end:
     add     sp, sp, #512   // liberar variables locales
@@ -752,26 +776,30 @@ eq_end_24:
     b       division_end   // return
 if_end_22:
     ldr     x15, [x29, #-8]   // load a
+    str     x15, [x29, #-24]   // save left operand
     ldr     x9, [x29, #-16]   // load b
+    ldr     x10, [x29, #-24]   // reload left operand
     cbnz    x9, div_ok_25   // check div by zero
     mov     x0, #0
     mov     x8, #93               // exit si div/0
     svc     #0
 div_ok_25:
-    sdiv    x10, x15, x9
-    mov     x0, x10   // return value[0]
-    ldr     x11, [x29, #-8]   // load a
-    ldr     x12, [x29, #-16]   // load b
-    cbnz    x12, mod_ok_26   // check mod by zero
+    sdiv    x11, x10, x9
+    mov     x0, x11   // return value[0]
+    ldr     x12, [x29, #-8]   // load a
+    str     x12, [x29, #-32]   // save left operand
+    ldr     x13, [x29, #-16]   // load b
+    ldr     x14, [x29, #-32]   // reload left operand
+    cbnz    x13, mod_ok_26   // check mod by zero
     mov     x0, #0
     mov     x8, #93
     svc     #0
 mod_ok_26:
-    sdiv    x14, x11, x12
-    msub    x13, x14, x12, x11
-    mov     x1, x13   // return value[1]
-    mov     x15, #1   // true
-    mov     x2, x15   // return value[2]
+    sdiv    x9, x14, x13
+    msub    x15, x9, x13, x14
+    mov     x1, x15   // return value[1]
+    mov     x10, #1   // true
+    mov     x2, x10   // return value[2]
     b       division_end   // return
 division_end:
     add     sp, sp, #512   // liberar variables locales
@@ -801,6 +829,7 @@ eq_end_30:
     b       potencia_end   // return
 if_end_28:
     ldr     x13, [x29, #-8]   // load base
+    str     x13, [x29, #-24]   // save left operand
     mov     x14, #0   // ref a potencia
     ldr     x15, [x29, #-8]   // load base
     mov     x0, x15   // arg[0]
@@ -810,8 +839,9 @@ if_end_28:
     mov     x1, x11   // arg[1]
     bl      potencia   // call potencia
     mov     x12, x0   // return value
-    mul     x13, x13, x12
-    mov     x0, x13   // return value
+    ldr     x13, [x29, #-24]   // reload left operand
+    mul     x14, x13, x12
+    mov     x0, x14   // return value
     b       potencia_end   // return
 potencia_end:
     add     sp, sp, #512   // liberar variables locales
@@ -846,25 +876,27 @@ if_end_32:
     ldr     x15, [x29, #-16]   // load b
     mov     x0, x15   // arg[0]
     ldr     x9, [x29, #-8]   // load a
+    str     x9, [x29, #-24]   // save left operand
     ldr     x10, [x29, #-16]   // load b
+    ldr     x11, [x29, #-24]   // reload left operand
     cbnz    x10, mod_ok_35   // check mod by zero
     mov     x0, #0
     mov     x8, #93
     svc     #0
 mod_ok_35:
-    sdiv    x12, x9, x10
-    msub    x11, x12, x10, x9
-    mov     x1, x11   // arg[1]
+    sdiv    x13, x11, x10
+    msub    x12, x13, x10, x11
+    mov     x1, x12   // arg[1]
     bl      euclides   // call euclides
-    mov     x13, x0   // return value
-    str     x13, [x29, #-24]   // decl resultado
-    str     xzr, [x29, #-32]   // decl pasos
-    ldr     x14, [x29, #-24]   // load resultado
-    mov     x0, x14   // return value[0]
-    ldr     x15, [x29, #-32]   // load pasos
-    mov     x9, #1
-    add     x10, x15, x9
-    mov     x1, x10   // return value[1]
+    mov     x14, x0   // return value
+    str     x0, [x29, #-32]   // decl resultado (ret 0)
+    str     x1, [x29, #-40]   // decl pasos (ret 1)
+    ldr     x15, [x29, #-32]   // load resultado
+    mov     x0, x15   // return value[0]
+    ldr     x9, [x29, #-40]   // load pasos
+    mov     x10, #1
+    add     x11, x9, x10
+    mov     x1, x11   // return value[1]
     b       euclides_end   // return
 euclides_end:
     add     sp, sp, #512   // liberar variables locales
