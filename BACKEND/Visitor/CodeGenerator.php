@@ -160,8 +160,9 @@ class CodeGenerator extends GolampiBaseVisitor
     */
     private function allocStack(): int
     {
-        $this->stackOffset -= 8;
-        return $this->stackOffset;
+        $offset = $this->stackOffset;
+        $this->stackOffset += 8;
+        return $offset;
     }
 
     // ==========================================================
@@ -298,7 +299,7 @@ class CodeGenerator extends GolampiBaseVisitor
                 $this->stackOffset -= 8;
                 $offset = $this->stackOffset;
                 $this->localVars[$paramName] = $offset;
-                $this->emit("    str     x{$i}, [x29, #{$offset}]   // param: {$paramName}");
+                $this->emit("    str     x{$i}, [sp, #{$offset}]   // param: {$paramName}");
                 $this->environment->define($paramName, $offset);
                 // AGREGAR después de environment->define en el foreach de parámetros:
                 $paramFullText = $param->getText(); // ej: "arr*[5]int32" o "x*int32"
@@ -371,11 +372,11 @@ class CodeGenerator extends GolampiBaseVisitor
             
             // LÍNEA CORRECTA:
             if ($arrayReg !== null) {
-                $this->emit("    str     {$arrayReg}, [x29, #{$offset}]   // array {$varName}");
+                $this->emit("    str     {$arrayReg}, [sp, #{$offset}]   // array {$varName}");
             } elseif (isset($values[$i])) {
                 // Guardar el registro con el valor en el slot del stack
                 $reg = $values[$i];
-                $this->emit("    str     {$reg}, [x29, #{$offset}]   // var {$varName}");
+                $this->emit("    str     {$reg}, [sp, #{$offset}]   // var {$varName}");
             } else {
                 // Valor por defecto según tipo
                 $typeName = $this->resolveTypeName($ctx->type());
@@ -385,17 +386,17 @@ class CodeGenerator extends GolampiBaseVisitor
                     $defReg = $this->nextReg();
                     $this->emit("    adrp    {$defReg}, {$emptyLabel}");
                     $this->emit("    add     {$defReg}, {$defReg}, :lo12:{$emptyLabel}");
-                    $this->emit("    str     {$defReg}, [x29, #{$offset}]   // var {$varName} = \"\"");
+                    $this->emit("    str     {$defReg}, [sp, #{$offset}]   // var {$varName} = \"\"");
                 } elseif ($typeName === "float32") {
                     // float por defecto: puntero a "0.0"
                     $zeroLabel = $this->addString("0.0");
                     $defReg = $this->nextReg();
                     $this->emit("    adrp    {$defReg}, {$zeroLabel}");
                     $this->emit("    add     {$defReg}, {$defReg}, :lo12:{$zeroLabel}");
-                    $this->emit("    str     {$defReg}, [x29, #{$offset}]   // var {$varName} = 0.0");
+                    $this->emit("    str     {$defReg}, [sp, #{$offset}]   // var {$varName} = 0.0");
                 } else {
                     // int32, bool, rune → 0
-                    $this->emit("    str     xzr, [x29, #{$offset}]   // var {$varName} = default");
+                    $this->emit("    str     xzr, [sp, #{$offset}]   // var {$varName} = default");
                 }
             }
 
@@ -437,7 +438,7 @@ class CodeGenerator extends GolampiBaseVisitor
                 $offset  = $this->allocStack();
                 $this->localVars[$varName] = $offset;
                 $reg = $retRegs[$i] ?? 'xzr';
-                $this->emit("    str     {$reg}, [x29, #{$offset}]   // decl {$varName} (ret {$i})");
+                $this->emit("    str     {$reg}, [sp, #{$offset}]   // decl {$varName} (ret {$i})");
                 $this->varTypes[$varName] = "int32";
                 $line = $id->getSymbol()->getLine();
                 $col  = $id->getSymbol()->getCharPositionInLine();
@@ -463,13 +464,13 @@ class CodeGenerator extends GolampiBaseVisitor
             if (isset($this->localVars[$varName])) {
                 // Reasignar
                 $offset = $this->localVars[$varName];
-                $this->emit("    str     {$reg}, [x29, #{$offset}]   // reassign {$varName}");
+                $this->emit("    str     {$reg}, [sp, #{$offset}]   // reassign {$varName}");
             } else {
                 // Nueva variable
                 $offset = $this->allocStack();
                 $this->localVars[$varName] = $offset;
                 $this->environment->define($varName, $offset, $line, $col);
-                $this->emit("    str     {$reg}, [x29, #{$offset}]   // decl {$varName}");
+                $this->emit("    str     {$reg}, [sp, #{$offset}]   // decl {$varName}");
                 $inferredType = $this->inferTypeFromExpr($ctx->exprList()->expression()[$i] ?? null);
                 $this->varTypes[$varName] = $inferredType;
                 \SymbolTable::add($varName, $inferredType, $this->currentScope, "—", $line, $col);
@@ -508,7 +509,7 @@ class CodeGenerator extends GolampiBaseVisitor
         $offset = $this->allocStack();
         $this->localVars[$name] = $offset;
         $this->environment->defineConst($name, $offset, $line, $col);
-        $this->emit("    str     {$reg}, [x29, #{$offset}]   // const {$name}");
+        $this->emit("    str     {$reg}, [sp, #{$offset}]   // const {$name}");
         $typeName = $this->resolveTypeName($ctx->type());
         $this->varTypes[$name] = $typeName;
 
@@ -1006,11 +1007,11 @@ class CodeGenerator extends GolampiBaseVisitor
         // Operador compuesto: cargar valor actual, operar, guardar
         if ($operator !== "=") {
             $oldReg = $this->nextReg();
-            $this->emit("    ldr     {$oldReg}, [x29, #{$offset}]   // load {$leftText}");
+            $this->emit("    ldr     {$oldReg}, [sp, #{$offset}]   // load {$leftText}");
             $rightReg = $this->applyCompoundOp($operator, $oldReg, $rightReg, $ctx);
         }
 
-        $this->emit("    str     {$rightReg}, [x29, #{$offset}]   // {$leftText} = val");
+        $this->emit("    str     {$rightReg}, [sp, #{$offset}]   // {$leftText} = val");
 
         return null;
     }
@@ -1497,7 +1498,7 @@ class CodeGenerator extends GolampiBaseVisitor
                 // Guardar el nuevo valor en la variable
                 if ($varName !== null && isset($this->localVars[$varName])) {
                     $offset = $this->localVars[$varName];
-                    $this->emit("    str     {$destReg}, [x29, #{$offset}]   // store {$varName}");
+                    $this->emit("    str     {$destReg}, [sp, #{$offset}]   // store {$varName}");
                 }
 
                 $value = $destReg;
@@ -1552,7 +1553,7 @@ class CodeGenerator extends GolampiBaseVisitor
             }
 
             $offset = $this->localVars[$name];
-            $this->emit("    ldr     {$destReg}, [x29, #{$offset}]   // load {$name}");
+            $this->emit("    ldr     {$destReg}, [sp, #{$offset}]   // load {$name}");
             return $destReg;
         }
 
@@ -2196,7 +2197,7 @@ class CodeGenerator extends GolampiBaseVisitor
 
             // Si es un string: usar __strlen
             $ptrReg = $this->nextReg();
-            $this->emit("    ldr     {$ptrReg}, [x29, #{$offset}]   // load {$varName} for len");
+            $this->emit("    ldr     {$ptrReg}, [sp, #{$offset}]   // load {$varName} for len");
             $this->requireHelper("__strlen");
             $this->emit("    mov     x0, {$ptrReg}");
             $this->emit("    bl      __strlen");
@@ -2428,7 +2429,7 @@ class CodeGenerator extends GolampiBaseVisitor
         $baseReg = $this->nextReg();
 
         // Cargar dirección base del array
-        $this->emit("    add     {$baseReg}, x29, #{$offset}   // base {$arrName}");
+        $this->emit("    add     {$baseReg}, sp, #{$offset}   // base {$arrName}");
 
         foreach ($indices as $idxReg) {
             $addrReg = $this->nextReg();
