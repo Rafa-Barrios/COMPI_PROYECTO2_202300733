@@ -128,32 +128,34 @@ main:
     bl      __print_newline
     mov     x11, #77
     mov     x12, #0   // índice desconocido
-    ldr     x13, [sp, #32]   // base de matrizNoInit
-    add     x14, x13, x12, lsl #3   // addr matrizNoInit[i]
-    str     x11, [x14]   // matrizNoInit[i] = val
-    adrp    x15, str_6
-    add     x15, x15, :lo12:str_6
+    mov     x13, #1   // idx adicional
+    add     x14, x12, x13   // suma indices
+    ldr     x15, [sp, #32]   // base de matrizNoInit
+    add     x9, x15, x14, lsl #3   // addr matrizNoInit[i]
+    str     x11, [x9]   // matrizNoInit[i] = val
+    adrp    x10, str_6
+    add     x10, x10, :lo12:str_6
     // fmt.Println arg[0] tipo=string
-    mov     x0, x15         // str addr
+    mov     x0, x10         // str addr
     mov     x1, #30      // str len
     bl      __print_str
     bl      __print_space
-    ldr     x9, [sp, #32]   // load matrizNoInit
-    mov     x10, #0
-    mov     x11, x9   // base de matrizNoInit
-    add     x12, x11, x10, lsl #3   // matrizNoInit[i]
-    mov     x14, #1
-    mov     x15, x12   // base encadenada
-    add     x9, x15, x14, lsl #3   // [i]
-    ldr     x10, [x9]   // load elem
+    ldr     x11, [sp, #32]   // load matrizNoInit
+    mov     x12, #0
+    mov     x13, x11   // base de matrizNoInit
+    add     x14, x13, x12, lsl #3   // matrizNoInit[i]
+    mov     x9, #1
+    mov     x10, x14   // base encadenada
+    add     x11, x10, x9, lsl #3   // [i]
+    ldr     x12, [x11]   // load elem
     // fmt.Println arg[1] tipo=int
-    mov     x0, x10
+    mov     x0, x12
     bl      __print_int
     bl      __print_newline
-    adrp    x11, str_7
-    add     x11, x11, :lo12:str_7
+    adrp    x13, str_7
+    add     x13, x13, :lo12:str_7
     // fmt.Println arg[0] tipo=string
-    mov     x0, x11         // str addr
+    mov     x0, x13         // str addr
     mov     x1, #38      // str len
     bl      __print_str
     bl      __print_newline

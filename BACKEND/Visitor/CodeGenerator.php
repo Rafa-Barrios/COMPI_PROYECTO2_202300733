@@ -969,22 +969,43 @@ class CodeGenerator extends GolampiBaseVisitor
 
             $baseOffset = $this->localVars[$arrName];
 
+            // Contar cuántos niveles de índice tiene el LHS: arr[i], arr[i][j]...
+            $lhsText   = $leftExpr->getText();
+            $idxCount  = substr_count($lhsText, '[');
 
-
-            // REEMPLAZAR con esto:
             if (is_numeric($idxText)) {
-                // Índice constante: cargarlo directamente
                 $idxReg = $this->nextReg();
                 $this->emit("    mov     {$idxReg}, #{$idxText}   // índice constante");
             } elseif (isset($this->localVars[$idxText])) {
-                // Índice es una variable local
                 $idxReg = $this->nextReg();
                 $idxOff = $this->localVars[$idxText];
                 $this->emit("    ldr     {$idxReg}, [sp, #{$idxOff}]   // índice {$idxText}");
             } else {
-                // Fallback: emitir 0
                 $idxReg = $this->nextReg();
                 $this->emit("    mov     {$idxReg}, #0   // índice desconocido");
+            }
+
+            // Si hay múltiples niveles de índice (ej: arr[0][1]), acumular los demás índices
+            if ($idxCount > 1) {
+                // Extraer todos los índices del texto: arr[0][1] → [0, 1]
+                preg_match_all('/\[([^\]]+)\]/', $lhsText, $idxMatches);
+                $allIdxTexts = $idxMatches[1] ?? [];
+                // Sumar los índices adicionales al idxReg
+                for ($ki = 1; $ki < count($allIdxTexts); $ki++) {
+                    $extraText = $allIdxTexts[$ki];
+                    $extraReg  = $this->nextReg();
+                    if (is_numeric($extraText)) {
+                        $this->emit("    mov     {$extraReg}, #{$extraText}   // idx adicional");
+                    } elseif (isset($this->localVars[$extraText])) {
+                        $extraOff = $this->localVars[$extraText];
+                        $this->emit("    ldr     {$extraReg}, [sp, #{$extraOff}]   // idx adicional {$extraText}");
+                    } else {
+                        $this->emit("    mov     {$extraReg}, #0   // idx adicional desconocido");
+                    }
+                    $sumReg = $this->nextReg();
+                    $this->emit("    add     {$sumReg}, {$idxReg}, {$extraReg}   // suma indices");
+                    $idxReg = $sumReg;
+                }
             }
 
             // REEMPLAZAR el bloque completo de cálculo de base (donde están $baseReg y $addrReg):
@@ -1747,12 +1768,25 @@ class CodeGenerator extends GolampiBaseVisitor
 
         // Almacenar cada elemento en su slot
         foreach ($elements as $i => $elem) {
-            // Detectar si el elemento es un sub-array por nombre de clase
-            $firstChild = $elem->getChildCount() > 0 ? $elem->getChild(0) : null;
-            $childClass  = $firstChild !== null ? get_class($firstChild) : '';
+            // Buscar ArrayLiteral en hasta 2 niveles de profundidad
+            $innerLiteral = null;
+            for ($ci = 0; $ci < $elem->getChildCount(); $ci++) {
+                $ch = $elem->getChild($ci);
+                if (str_contains(get_class($ch), 'ArrayLiteral')) {
+                    $innerLiteral = $ch;
+                    break;
+                }
+                for ($cj = 0; $cj < $ch->getChildCount(); $cj++) {
+                    $gch = $ch->getChild($cj);
+                    if (str_contains(get_class($gch), 'ArrayLiteral')) {
+                        $innerLiteral = $gch;
+                        break 2;
+                    }
+                }
+            }
 
-            if (str_contains($childClass, 'ArrayLiteral')) {
-                $valReg = $this->visit($firstChild);
+            if ($innerLiteral !== null) {
+                $valReg = $this->visit($innerLiteral);
             } elseif ($elem->expression() !== null) {
                 $valReg = $this->visit($elem->expression());
             } else {
