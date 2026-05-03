@@ -296,13 +296,11 @@ class CodeGenerator extends GolampiBaseVisitor
         if ($ctx->parameters() !== null) {
             foreach ($ctx->parameters()->parameter() as $i => $param) {
                 $paramName = $param->ID()->getText();
-                $this->stackOffset -= 8;
-                $offset = $this->stackOffset;
+                $offset = $this->allocStack(); // usa allocStack positivo
                 $this->localVars[$paramName] = $offset;
                 $this->emit("    str     x{$i}, [sp, #{$offset}]   // param: {$paramName}");
                 $this->environment->define($paramName, $offset);
-                // AGREGAR después de environment->define en el foreach de parámetros:
-                $paramFullText = $param->getText(); // ej: "arr*[5]int32" o "x*int32"
+                $paramFullText = $param->getText();
                 if (str_contains($paramFullText, '*')) {
                     $this->varTypes[$paramName] = "pointer";
                 }
@@ -644,7 +642,7 @@ class CodeGenerator extends GolampiBaseVisitor
         // Guardar el valor en un registro fijo para comparaciones
         // usamos x19 (callee-saved) para no perderlo entre cases
         $switchSlot = $this->allocStack();
-        $this->emit("    str     {$switchReg}, [x29, #{$switchSlot}]   // switch value");
+        $this->emit("    str     {$switchReg}, [sp, #{$switchSlot}]   // switch value");
 
         $labelDefault = null;
 
@@ -664,7 +662,7 @@ class CodeGenerator extends GolampiBaseVisitor
             foreach ($case->exprList()->expression() as $caseExpr) {
                 $caseReg = $this->visit($caseExpr);
                 $cmpReg = $this->nextReg();
-                $this->emit("    ldr     {$cmpReg}, [x29, #{$switchSlot}]   // load switch value");
+                $this->emit("    ldr     {$cmpReg}, [sp, #{$switchSlot}]   // load switch value");
                 $this->emit("    cmp     {$cmpReg}, {$caseReg}");
                 $this->emit("    b.eq    {$labelCase}");
             }
@@ -930,7 +928,7 @@ class CodeGenerator extends GolampiBaseVisitor
                 // Índice es una variable local
                 $idxReg = $this->nextReg();
                 $idxOff = $this->localVars[$idxText];
-                $this->emit("    ldr     {$idxReg}, [x29, #{$idxOff}]   // índice {$idxText}");
+                $this->emit("    ldr     {$idxReg}, [sp, #{$idxOff}]   // índice {$idxText}");
             } else {
                 // Fallback: emitir 0
                 $idxReg = $this->nextReg();
@@ -944,13 +942,13 @@ class CodeGenerator extends GolampiBaseVisitor
                 // puntero a array: necesita doble deref
                 // Paso 1: cargar el puntero del slot local
                 $ptrReg = $baseReg;
-                $this->emit("    ldr     {$ptrReg}, [x29, #{$baseOffset}]   // load ptr → &arr_caller");
+                $this->emit("    ldr     {$ptrReg}, [sp, #{$baseOffset}]   // load ptr → &arr_caller");
                 // Paso 2: deref para obtener la base real del array
                 $baseReg = $this->nextReg();
                 $this->emit("    ldr     {$baseReg}, [{$ptrReg}]             // deref → base real de {$arrName}");
             } else {
                 // array local: [x29, #offset] guarda directamente la base del array
-                $this->emit("    ldr     {$baseReg}, [x29, #{$baseOffset}]   // base de {$arrName}");
+                $this->emit("    ldr     {$baseReg}, [sp, #{$baseOffset}]   // base de {$arrName}");
             }
             $this->emit("    add     {$addrReg}, {$baseReg}, {$idxReg}, lsl #3   // addr {$arrName}[i]");
             
@@ -979,7 +977,7 @@ class CodeGenerator extends GolampiBaseVisitor
             $ptrReg    = $this->nextReg();
 
             // Cargar la dirección guardada en el puntero
-            $this->emit("    ldr     {$ptrReg}, [x29, #{$ptrOffset}]   // load ptr addr");
+            $this->emit("    ldr     {$ptrReg}, [sp, #{$ptrOffset}]   // load ptr addr");
 
             if ($operator !== "=") {
                 $oldReg = $this->nextReg();
@@ -1301,14 +1299,14 @@ class CodeGenerator extends GolampiBaseVisitor
             // Guardar operando izquierdo en stack antes de evaluar el derecho
             // (el derecho puede hacer un bl que destruye los registros temporales)
             $saveSlot  = $this->allocStack();
-            $this->emit("    str     {$result}, [x29, #{$saveSlot}]   // save left operand");
+            $this->emit("    str     {$result}, [sp, #{$saveSlot}]   // save left operand");
 
             $right   = $this->visit($uns[$i]);
             $op      = $ctx->getChild(2 * $i - 1)->getText();
 
             // Recargar operando izquierdo (puede haberse destruido por bl en el right)
             $leftReg = $this->nextReg();
-            $this->emit("    ldr     {$leftReg}, [x29, #{$saveSlot}]   // reload left operand");
+            $this->emit("    ldr     {$leftReg}, [sp, #{$saveSlot}]   // reload left operand");
 
             $destReg = $this->nextReg();
 
@@ -1389,7 +1387,7 @@ class CodeGenerator extends GolampiBaseVisitor
                     return $destReg;
                 }
                 $offset = $this->localVars[$varName];
-                $this->emit("    add     {$destReg}, x29, #{$offset}   // &{$varName}");
+                $this->emit("    add     {$destReg}, sp, #{$offset}   // &{$varName}");
                 break;
 
             // Desreferencia: *p → cargar valor de la dirección
@@ -1650,29 +1648,33 @@ class CodeGenerator extends GolampiBaseVisitor
     */
     public function visitArrayLiteral($ctx)
     {
-        // Evaluar tamaño
-        $sizeReg = $this->visit($ctx->expression());
+        $elements = $ctx->arrayElements() !== null
+            ? $ctx->arrayElements()->arrayElement()
+            : [];
+        $count = count($elements);
 
-        // Reservar espacio en stack para el array
-        // Retornamos la dirección base del array
-        $baseReg = $this->nextReg();
-
-        // Cada elemento ocupa 8 bytes
-        // Ajustamos el stack pointer manualmente
-        $this->emit("    // array literal: reservar espacio en stack");
-        $this->emit("    sub     sp, sp, {$sizeReg}, lsl #3   // size * 8 bytes");
-        $this->emit("    mov     {$baseReg}, sp   // base del array");
-
-        // Inicializar elementos si se proporcionaron
-        if ($ctx->arrayElements() !== null) {
-            $elements = $ctx->arrayElements()->arrayElement();
-            foreach ($elements as $i => $elem) {
-                $valReg  = $this->visit($elem->expression());
-                $elemOffset = $i * 8;
-                $this->emit("    str     {$valReg}, [{$baseReg}, #{$elemOffset}]   // arr[{$i}]");
-            }
+        if ($count === 0) {
+            $baseReg = $this->nextReg();
+            $this->emit("    mov     {$baseReg}, sp   // array vacío");
+            return $baseReg;
         }
 
+        // Reservar slots contiguos en el frame actual (NO mover sp)
+        $firstSlot = $this->allocStack();
+        for ($i = 1; $i < $count; $i++) {
+            $this->allocStack(); // reservar espacio para cada elemento
+        }
+
+        // Almacenar cada elemento en su slot
+        foreach ($elements as $i => $elem) {
+            $valReg  = $this->visit($elem->expression());
+            $slotOff = $firstSlot + ($i * 8);
+            $this->emit("    str     {$valReg}, [sp, #{$slotOff}]   // arr[{$i}]");
+        }
+
+        // Retornar la dirección base del array
+        $baseReg = $this->nextReg();
+        $this->emit("    add     {$baseReg}, sp, #{$firstSlot}   // base del array");
         return $baseReg;
     }
 
