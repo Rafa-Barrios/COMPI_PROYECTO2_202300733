@@ -395,26 +395,51 @@ class CodeGenerator extends GolampiBaseVisitor
                 } else {
                     // int32, bool, rune → 0
                     // Calcular cuántos slots necesita (para arrays multidimensionales)
-                    $typeText = $ctx->type() !== null ? $ctx->type()->getText() : "";
+                    $typeText   = $ctx->type() !== null ? $ctx->type()->getText() : "";
                     $totalSlots = 1;
                     if (preg_match_all('/\[(\d+)\]/', $typeText, $dimMatches)) {
-                        $totalSlots = 1;
                         foreach ($dimMatches[1] as $dim) {
                             $totalSlots *= (int)$dim;
                         }
                     }
-                    // Registrar el tipo array para len()
+
                     if ($totalSlots > 1) {
-                        $this->varTypes[$varName] = "array:" . $totalSlots;
-                    }
-                    // Allocar slots adicionales si es multidimensional
-                    for ($s = 1; $s < $totalSlots; $s++) {
-                        $this->allocStack();
-                    }
-                    // Inicializar todos a cero
-                    for ($s = 0; $s < $totalSlots; $s++) {
-                        $slotOff = $offset + ($s * 8);
-                        $this->emit("    str     xzr, [sp, #{$slotOff}]   // var {$varName}[{$s}] = 0");
+                        // Array multidimensional/grande: datos en slots contiguos + slot puntero al final
+                        $dataOffset = $offset; // primer slot ya reservado por allocStack() del foreach
+                        for ($s = 1; $s < $totalSlots; $s++) {
+                            $this->allocStack(); // reservar slots adicionales de datos
+                        }
+                        // Inicializar datos a cero
+                        for ($s = 0; $s < $totalSlots; $s++) {
+                            $slotOff = $dataOffset + ($s * 8);
+                            $this->emit("    str     xzr, [sp, #{$slotOff}]   // {$varName}[{$s}] = 0");
+                        }
+                        // Slot puntero: igual que arrayLiteral, guarda la dirección base
+                        $ptrSlot = $this->allocStack();
+                        $ptrReg  = $this->nextReg();
+                        $this->emit("    add     {$ptrReg}, sp, #{$dataOffset}   // base de {$varName}");
+                        $this->emit("    str     {$ptrReg}, [sp, #{$ptrSlot}]   // ptr {$varName}");
+                        // Redirigir localVars al slot puntero (consistente con arrayLiteral)
+                        $this->localVars[$varName] = $ptrSlot;
+                        $this->varTypes[$varName]  = "array:" . $totalSlots;
+                    } else {
+                        // Variable simple: valor por defecto según tipo
+                        $typeName = $this->resolveTypeName($ctx->type());
+                        if ($typeName === "string") {
+                            $emptyLabel = $this->addString("");
+                            $defReg = $this->nextReg();
+                            $this->emit("    adrp    {$defReg}, {$emptyLabel}");
+                            $this->emit("    add     {$defReg}, {$defReg}, :lo12:{$emptyLabel}");
+                            $this->emit("    str     {$defReg}, [sp, #{$offset}]   // {$varName} = \"\"");
+                        } elseif ($typeName === "float32") {
+                            $zeroLabel = $this->addString("0.0");
+                            $defReg = $this->nextReg();
+                            $this->emit("    adrp    {$defReg}, {$zeroLabel}");
+                            $this->emit("    add     {$defReg}, {$defReg}, :lo12:{$zeroLabel}");
+                            $this->emit("    str     {$defReg}, [sp, #{$offset}]   // {$varName} = 0.0");
+                        } else {
+                            $this->emit("    str     xzr, [sp, #{$offset}]   // {$varName} = default");
+                        }
                     }
                 }
             }

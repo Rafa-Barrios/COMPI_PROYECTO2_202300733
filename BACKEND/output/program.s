@@ -50,108 +50,110 @@ main:
     mov     x1, #41      // str len
     bl      __print_str
     bl      __print_newline
-    str     xzr, [sp, #0]   // var matrizNoInit[0] = 0
-    str     xzr, [sp, #8]   // var matrizNoInit[1] = 0
-    str     xzr, [sp, #16]   // var matrizNoInit[2] = 0
-    str     xzr, [sp, #24]   // var matrizNoInit[3] = 0
-    mov     x11, #0   // elem default
-    str     x11, [sp, #32]   // arr[0]
+    str     xzr, [sp, #0]   // matrizNoInit[0] = 0
+    str     xzr, [sp, #8]   // matrizNoInit[1] = 0
+    str     xzr, [sp, #16]   // matrizNoInit[2] = 0
+    str     xzr, [sp, #24]   // matrizNoInit[3] = 0
+    add     x11, sp, #0   // base de matrizNoInit
+    str     x11, [sp, #32]   // ptr matrizNoInit
     mov     x12, #0   // elem default
-    str     x12, [sp, #40]   // arr[1]
-    add     x13, sp, #32   // base del array
-    str     x13, [sp, #48]   // decl matrizInit
-    adrp    x14, str_2
-    add     x14, x14, :lo12:str_2
+    str     x12, [sp, #40]   // arr[0]
+    mov     x13, #0   // elem default
+    str     x13, [sp, #48]   // arr[1]
+    add     x14, sp, #40   // base del array
+    str     x14, [sp, #56]   // decl matrizInit
+    adrp    x15, str_2
+    add     x15, x15, :lo12:str_2
     // fmt.Println arg[0] tipo=string
-    mov     x0, x14         // str addr
+    mov     x0, x15         // str addr
     mov     x1, #30      // str len
     bl      __print_str
     bl      __print_space
-    ldr     x15, [sp, #0]   // load matrizNoInit
-    mov     x9, #1
-    mov     x10, x15   // base de matrizNoInit
-    add     x11, x10, x9, lsl #3   // matrizNoInit[i]
-    mov     x13, #1
-    mov     x14, x11   // base encadenada
-    add     x15, x14, x13, lsl #3   // [i]
-    ldr     x9, [x15]   // load elem
+    ldr     x9, [sp, #32]   // load matrizNoInit
+    mov     x10, #1
+    mov     x11, x9   // base de matrizNoInit
+    add     x12, x11, x10, lsl #3   // matrizNoInit[i]
+    mov     x14, #1
+    mov     x15, x12   // base encadenada
+    add     x9, x15, x14, lsl #3   // [i]
+    ldr     x10, [x9]   // load elem
     // fmt.Println arg[1] tipo=int
-    mov     x0, x9
+    mov     x0, x10
     bl      __print_int
     bl      __print_newline
-    adrp    x10, str_3
-    add     x10, x10, :lo12:str_3
+    adrp    x11, str_3
+    add     x11, x11, :lo12:str_3
     // fmt.Println arg[0] tipo=string
-    mov     x0, x10         // str addr
+    mov     x0, x11         // str addr
     mov     x1, #27      // str len
     bl      __print_str
     bl      __print_space
-    ldr     x11, [sp, #48]   // load matrizInit
-    mov     x12, #0
-    mov     x13, x11   // base de matrizInit
-    add     x14, x13, x12, lsl #3   // matrizInit[i]
-    mov     x9, #0
-    mov     x10, x14   // base encadenada
-    add     x11, x10, x9, lsl #3   // [i]
-    ldr     x12, [x11]   // load elem
+    ldr     x12, [sp, #56]   // load matrizInit
+    mov     x13, #0
+    mov     x14, x12   // base de matrizInit
+    add     x15, x14, x13, lsl #3   // matrizInit[i]
+    mov     x10, #0
+    mov     x11, x15   // base encadenada
+    add     x12, x11, x10, lsl #3   // [i]
+    ldr     x13, [x12]   // load elem
     // fmt.Println arg[1] tipo=int
-    mov     x0, x12
+    mov     x0, x13
     bl      __print_int
     bl      __print_newline
-    adrp    x13, str_4
-    add     x13, x13, :lo12:str_4
+    adrp    x14, str_4
+    add     x14, x14, :lo12:str_4
     // fmt.Println arg[0] tipo=string
-    mov     x0, x13         // str addr
+    mov     x0, x14         // str addr
     mov     x1, #51      // str len
     bl      __print_str
     bl      __print_newline
-    adrp    x14, str_5
-    add     x14, x14, :lo12:str_5
+    adrp    x15, str_5
+    add     x15, x15, :lo12:str_5
     // fmt.Println arg[0] tipo=string
-    mov     x0, x14         // str addr
+    mov     x0, x15         // str addr
     mov     x1, #28      // str len
     bl      __print_str
     bl      __print_space
-    ldr     x15, [sp, #0]   // load matrizNoInit
-    mov     x9, #0
-    mov     x10, x15   // base de matrizNoInit
-    add     x11, x10, x9, lsl #3   // matrizNoInit[i]
-    mov     x13, #1
-    mov     x14, x11   // base encadenada
-    add     x15, x14, x13, lsl #3   // [i]
-    ldr     x9, [x15]   // load elem
+    ldr     x9, [sp, #32]   // load matrizNoInit
+    mov     x10, #0
+    mov     x11, x9   // base de matrizNoInit
+    add     x12, x11, x10, lsl #3   // matrizNoInit[i]
+    mov     x14, #1
+    mov     x15, x12   // base encadenada
+    add     x9, x15, x14, lsl #3   // [i]
+    ldr     x10, [x9]   // load elem
     // fmt.Println arg[1] tipo=int
-    mov     x0, x9
+    mov     x0, x10
     bl      __print_int
     bl      __print_newline
-    mov     x10, #77
-    mov     x11, #0   // índice desconocido
-    ldr     x12, [sp, #0]   // base de matrizNoInit
-    add     x13, x12, x11, lsl #3   // addr matrizNoInit[i]
-    str     x10, [x13]   // matrizNoInit[i] = val
-    adrp    x14, str_6
-    add     x14, x14, :lo12:str_6
+    mov     x11, #77
+    mov     x12, #0   // índice desconocido
+    ldr     x13, [sp, #32]   // base de matrizNoInit
+    add     x14, x13, x12, lsl #3   // addr matrizNoInit[i]
+    str     x11, [x14]   // matrizNoInit[i] = val
+    adrp    x15, str_6
+    add     x15, x15, :lo12:str_6
     // fmt.Println arg[0] tipo=string
-    mov     x0, x14         // str addr
+    mov     x0, x15         // str addr
     mov     x1, #30      // str len
     bl      __print_str
     bl      __print_space
-    ldr     x15, [sp, #0]   // load matrizNoInit
-    mov     x9, #0
-    mov     x10, x15   // base de matrizNoInit
-    add     x11, x10, x9, lsl #3   // matrizNoInit[i]
-    mov     x13, #1
-    mov     x14, x11   // base encadenada
-    add     x15, x14, x13, lsl #3   // [i]
-    ldr     x9, [x15]   // load elem
+    ldr     x9, [sp, #32]   // load matrizNoInit
+    mov     x10, #0
+    mov     x11, x9   // base de matrizNoInit
+    add     x12, x11, x10, lsl #3   // matrizNoInit[i]
+    mov     x14, #1
+    mov     x15, x12   // base encadenada
+    add     x9, x15, x14, lsl #3   // [i]
+    ldr     x10, [x9]   // load elem
     // fmt.Println arg[1] tipo=int
-    mov     x0, x9
+    mov     x0, x10
     bl      __print_int
     bl      __print_newline
-    adrp    x10, str_7
-    add     x10, x10, :lo12:str_7
+    adrp    x11, str_7
+    add     x11, x11, :lo12:str_7
     // fmt.Println arg[0] tipo=string
-    mov     x0, x10         // str addr
+    mov     x0, x11         // str addr
     mov     x1, #38      // str len
     bl      __print_str
     bl      __print_newline
