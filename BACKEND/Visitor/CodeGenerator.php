@@ -394,7 +394,28 @@ class CodeGenerator extends GolampiBaseVisitor
                     $this->emit("    str     {$defReg}, [sp, #{$offset}]   // var {$varName} = 0.0");
                 } else {
                     // int32, bool, rune → 0
-                    $this->emit("    str     xzr, [sp, #{$offset}]   // var {$varName} = default");
+                    // Calcular cuántos slots necesita (para arrays multidimensionales)
+                    $typeText = $ctx->type() !== null ? $ctx->type()->getText() : "";
+                    $totalSlots = 1;
+                    if (preg_match_all('/\[(\d+)\]/', $typeText, $dimMatches)) {
+                        $totalSlots = 1;
+                        foreach ($dimMatches[1] as $dim) {
+                            $totalSlots *= (int)$dim;
+                        }
+                    }
+                    // Registrar el tipo array para len()
+                    if ($totalSlots > 1) {
+                        $this->varTypes[$varName] = "array:" . $totalSlots;
+                    }
+                    // Allocar slots adicionales si es multidimensional
+                    for ($s = 1; $s < $totalSlots; $s++) {
+                        $this->allocStack();
+                    }
+                    // Inicializar todos a cero
+                    for ($s = 0; $s < $totalSlots; $s++) {
+                        $slotOff = $offset + ($s * 8);
+                        $this->emit("    str     xzr, [sp, #{$slotOff}]   // var {$varName}[{$s}] = 0");
+                    }
                 }
             }
 
@@ -1482,16 +1503,38 @@ class CodeGenerator extends GolampiBaseVisitor
                 if ($varName !== null &&
                     isset($this->varTypes[$varName]) &&
                     $this->varTypes[$varName] === "pointer") {
-                    // Deref: cargar la base real del array desde la dirección apuntada
                     $this->emit("    ldr     {$baseReg}, [{$value}]   // deref ptr → base real de {$varName}");
-                } else {
-                    // $value ya es la base del array
+                } elseif ($varName !== null && isset($this->localVars[$varName])) {
+                    // Array local: $value ya tiene la base del array
                     $this->emit("    mov     {$baseReg}, {$value}   // base de {$varName}");
+                } else {
+                    // Acceso encadenado mat[r][c]: $value ya es la dirección del elemento anterior
+                    // Para 2D: el primer acceso devuelve sp+offset_fila, el segundo indexa desde ahí
+                    $this->emit("    mov     {$baseReg}, {$value}   // base encadenada");
                 }
 
                 $this->emit("    add     {$addrReg}, {$baseReg}, {$idxReg}, lsl #3   // {$varName}[i]");
-                $this->emit("    ldr     {$loadReg}, [{$addrReg}]   // load elem");
-                $value = $loadReg;
+                // Si hay más índices después, retornar la dirección (no cargar el valor)
+                // Si es el último índice, cargar el valor
+                $nextChildIndex = $i + 1;
+                $hasMoreIndexes = false;
+                if ($nextChildIndex < $ctx->getChildCount()) {
+                    $nextClass = get_class($ctx->getChild($nextChildIndex));
+                    if (str_contains($nextClass, 'Index')) {
+                        $hasMoreIndexes = true;
+                    }
+                }
+
+                if ($hasMoreIndexes) {
+                    // Retornar la dirección calculada para que el siguiente índice la use como base
+                    $value = $addrReg;
+                } else {
+                    // Último índice: cargar el valor real
+                    $this->emit("    ldr     {$loadReg}, [{$addrReg}]   // load elem");
+                    $value = $loadReg;
+                }
+                $varName = null;
+                $varName = null; 
 
             // ── ++ / -- ────────────────────────────────────────
             } elseif (str_contains(get_class($child), 'Increment')) {
@@ -1679,7 +1722,18 @@ class CodeGenerator extends GolampiBaseVisitor
 
         // Almacenar cada elemento en su slot
         foreach ($elements as $i => $elem) {
-            $valReg  = $this->visit($elem->expression());
+            // Detectar si el elemento es un sub-array por nombre de clase
+            $firstChild = $elem->getChildCount() > 0 ? $elem->getChild(0) : null;
+            $childClass  = $firstChild !== null ? get_class($firstChild) : '';
+
+            if (str_contains($childClass, 'ArrayLiteral')) {
+                $valReg = $this->visit($firstChild);
+            } elseif ($elem->expression() !== null) {
+                $valReg = $this->visit($elem->expression());
+            } else {
+                $valReg = $this->nextReg();
+                $this->emit("    mov     {$valReg}, #0   // elem default");
+            }
             $slotOff = $firstSlot + ($i * 8);
             $this->emit("    str     {$valReg}, [sp, #{$slotOff}]   // arr[{$i}]");
         }
