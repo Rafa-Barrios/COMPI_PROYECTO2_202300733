@@ -35,7 +35,7 @@ str_19: .asciz "len(texto):"
 str_20: .asciz "len(arrLen):"
 str_21: .asciz "\n--- 4.3 NOW ---"
 str_22: .asciz "Fecha actual:"
-str_23: .asciz "2026-05-03 08:27:55"
+str_23: .asciz "2026-05-03 10:47:42"
 str_24: .asciz "\n--- 4.4 SUBSTR ---"
 str_25: .asciz "substr:"
 str_26: .asciz "Organizacion de Lenguajes"
@@ -450,153 +450,150 @@ main:
     mov     x1, #12      // str len
     bl      __print_str
     bl      __print_space
-    ldr     x11, [sp, #192]   // load arrLen for len
-    mov     x0, x11
-    bl      __strlen
-    mov     x10, x0   // len result
+    mov     x10, #4   // len(arrLen) array size
     // fmt.Println arg[1] tipo=int
     mov     x0, x10
     bl      __print_int
     bl      __print_newline
-    adrp    x12, str_21
-    add     x12, x12, :lo12:str_21
+    adrp    x11, str_21
+    add     x11, x11, :lo12:str_21
     // fmt.Println arg[0] tipo=string
-    mov     x0, x12         // str addr
+    mov     x0, x11         // str addr
     mov     x1, #16      // str len
     bl      __print_str
     bl      __print_newline
-    adrp    x13, str_22
-    add     x13, x13, :lo12:str_22
+    adrp    x12, str_22
+    add     x12, x12, :lo12:str_22
     // fmt.Println arg[0] tipo=string
-    mov     x0, x13         // str addr
+    mov     x0, x12         // str addr
     mov     x1, #13      // str len
     bl      __print_str
     bl      __print_space
-    // now() → "2026-05-03 08:27:55"
-    adrp    x14, str_23
-    add     x14, x14, :lo12:str_23
+    // now() → "2026-05-03 10:47:42"
+    adrp    x13, str_23
+    add     x13, x13, :lo12:str_23
     // fmt.Println arg[1] tipo=string
-    mov     x0, x14
+    mov     x0, x13
     bl      __strlen
     mov     x1, x0
-    mov     x0, x14
+    mov     x0, x13
     bl      __print_str
     bl      __print_newline
-    adrp    x15, str_24
-    add     x15, x15, :lo12:str_24
+    adrp    x14, str_24
+    add     x14, x14, :lo12:str_24
+    // fmt.Println arg[0] tipo=string
+    mov     x0, x14         // str addr
+    mov     x1, #19      // str len
+    bl      __print_str
+    bl      __print_newline
+    adrp    x15, str_25
+    add     x15, x15, :lo12:str_25
+    // fmt.Println arg[0] tipo=string
+    mov     x0, x15         // str addr
+    mov     x1, #7      // str len
+    bl      __print_str
+    bl      __print_space
+    adrp    x10, str_26
+    add     x10, x10, :lo12:str_26
+    mov     x11, #0
+    mov     x12, #12
+    // substr(str, start, length)
+    add     x13, x10, x11   // ptr = str + start
+    sub     sp, sp, #64             // buffer para substr
+    mov     x14, sp            // destino
+    mov     x0, x14            // destino
+    mov     x1, x13            // origen = str + start
+    mov     x2, x12         // bytes a copiar
+    bl      __memcpy
+    add     x9, x14, x12
+    strb    wzr, [x9]               // null terminator
+    mov     x9, x14    // retornar ptr subcadena
+    // fmt.Println arg[1] tipo=string
+    mov     x0, x9
+    bl      __strlen
+    mov     x1, x0
+    mov     x0, x9
+    bl      __print_str
+    bl      __print_newline
+    adrp    x15, str_27
+    add     x15, x15, :lo12:str_27
     // fmt.Println arg[0] tipo=string
     mov     x0, x15         // str addr
     mov     x1, #19      // str len
     bl      __print_str
     bl      __print_newline
-    adrp    x9, str_25
-    add     x9, x9, :lo12:str_25
+    adrp    x9, str_28
+    add     x9, x9, :lo12:str_28
     // fmt.Println arg[0] tipo=string
     mov     x0, x9         // str addr
-    mov     x1, #7      // str len
-    bl      __print_str
-    bl      __print_space
-    adrp    x11, str_26
-    add     x11, x11, :lo12:str_26
-    mov     x12, #0
-    mov     x13, #12
-    // substr(str, start, length)
-    add     x14, x11, x12   // ptr = str + start
-    sub     sp, sp, #64             // buffer para substr
-    mov     x15, sp            // destino
-    mov     x0, x15            // destino
-    mov     x1, x14            // origen = str + start
-    mov     x2, x13         // bytes a copiar
-    bl      __memcpy
-    add     x9, x15, x13
-    strb    wzr, [x9]               // null terminator
-    mov     x10, x15    // retornar ptr subcadena
-    // fmt.Println arg[1] tipo=string
-    mov     x0, x10
-    bl      __strlen
-    mov     x1, x0
-    mov     x0, x10
-    bl      __print_str
-    bl      __print_newline
-    adrp    x9, str_27
-    add     x9, x9, :lo12:str_27
-    // fmt.Println arg[0] tipo=string
-    mov     x0, x9         // str addr
-    mov     x1, #19      // str len
-    bl      __print_str
-    bl      __print_newline
-    adrp    x10, str_28
-    add     x10, x10, :lo12:str_28
-    // fmt.Println arg[0] tipo=string
-    mov     x0, x10         // str addr
     mov     x1, #6      // str len
     bl      __print_str
     bl      __print_space
     // typeOf(42)
-    adrp    x11, str_29
-    add     x11, x11, :lo12:str_29
+    adrp    x10, str_29
+    add     x10, x10, :lo12:str_29
     // fmt.Println arg[1] tipo=string
-    mov     x0, x11
+    mov     x0, x10
     bl      __strlen
     mov     x1, x0
-    mov     x0, x11
+    mov     x0, x10
     bl      __print_str
     bl      __print_newline
-    adrp    x12, str_30
-    add     x12, x12, :lo12:str_30
+    adrp    x11, str_30
+    add     x11, x11, :lo12:str_30
     // fmt.Println arg[0] tipo=string
-    mov     x0, x12         // str addr
+    mov     x0, x11         // str addr
     mov     x1, #8      // str len
     bl      __print_str
     bl      __print_space
     // typeOf(3.14)
-    adrp    x13, str_31
-    add     x13, x13, :lo12:str_31
+    adrp    x12, str_31
+    add     x12, x12, :lo12:str_31
     // fmt.Println arg[1] tipo=string
-    mov     x0, x13
+    mov     x0, x12
     bl      __strlen
     mov     x1, x0
-    mov     x0, x13
+    mov     x0, x12
     bl      __print_str
     bl      __print_newline
-    adrp    x14, str_32
-    add     x14, x14, :lo12:str_32
+    adrp    x13, str_32
+    add     x13, x13, :lo12:str_32
     // fmt.Println arg[0] tipo=string
-    mov     x0, x14         // str addr
+    mov     x0, x13         // str addr
     mov     x1, #5      // str len
     bl      __print_str
     bl      __print_space
     // typeOf(true)
-    adrp    x15, str_33
-    add     x15, x15, :lo12:str_33
+    adrp    x14, str_33
+    add     x14, x14, :lo12:str_33
     // fmt.Println arg[1] tipo=string
-    mov     x0, x15
+    mov     x0, x14
     bl      __strlen
     mov     x1, x0
-    mov     x0, x15
+    mov     x0, x14
     bl      __print_str
     bl      __print_newline
-    adrp    x9, str_34
-    add     x9, x9, :lo12:str_34
+    adrp    x15, str_34
+    add     x15, x15, :lo12:str_34
     // fmt.Println arg[0] tipo=string
-    mov     x0, x9         // str addr
+    mov     x0, x15         // str addr
     mov     x1, #7      // str len
     bl      __print_str
     bl      __print_space
     // typeOf("texto")
-    adrp    x10, str_35
-    add     x10, x10, :lo12:str_35
+    adrp    x9, str_35
+    add     x9, x9, :lo12:str_35
     // fmt.Println arg[1] tipo=string
-    mov     x0, x10
+    mov     x0, x9
     bl      __strlen
     mov     x1, x0
-    mov     x0, x10
+    mov     x0, x9
     bl      __print_str
     bl      __print_newline
-    adrp    x11, str_36
-    add     x11, x11, :lo12:str_36
+    adrp    x10, str_36
+    add     x10, x10, :lo12:str_36
     // fmt.Println arg[0] tipo=string
-    mov     x0, x11         // str addr
+    mov     x0, x10         // str addr
     mov     x1, #39      // str len
     bl      __print_str
     bl      __print_newline
@@ -700,100 +697,106 @@ ordenamientoSeleccion:
     str     x9, [sp, #8]   // decl i
 for_start_1:
     ldr     x10, [sp, #8]   // load i
+    str     x10, [sp, #16]   // save left for cmp
     mov     x11, #4
-    cmp     x10, x11
+    ldr     x12, [sp, #16]   // reload left for cmp
+    cmp     x12, x11
     b.lt    rel_true_4
-    mov     x12, #0
+    mov     x13, #0
     b       rel_end_5
 rel_true_4:
-    mov     x12, #1
+    mov     x13, #1
 rel_end_5:
-    cmp     x12, #0
+    cmp     x13, #0
     b.eq    for_end_3
-    ldr     x13, [sp, #8]   // load i
-    str     x13, [sp, #16]   // decl min
     ldr     x14, [sp, #8]   // load i
-    mov     x15, #1
-    add     x9, x14, x15
-    str     x9, [sp, #24]   // decl j
+    str     x14, [sp, #24]   // decl min
+    ldr     x15, [sp, #8]   // load i
+    mov     x9, #1
+    add     x10, x15, x9
+    str     x10, [sp, #32]   // decl j
 for_start_6:
-    ldr     x10, [sp, #24]   // load j
-    mov     x11, #5
-    cmp     x10, x11
+    ldr     x11, [sp, #32]   // load j
+    str     x11, [sp, #40]   // save left for cmp
+    mov     x12, #5
+    ldr     x13, [sp, #40]   // reload left for cmp
+    cmp     x13, x12
     b.lt    rel_true_9
-    mov     x12, #0
+    mov     x14, #0
     b       rel_end_10
 rel_true_9:
-    mov     x12, #1
+    mov     x14, #1
 rel_end_10:
-    cmp     x12, #0
+    cmp     x14, #0
     b.eq    for_end_8
+    ldr     x15, [sp, #0]   // load arr
+    ldr     x9, [sp, #32]   // load j
+    ldr     x10, [x15]   // deref ptr → base real de arr
+    add     x11, x10, x9, lsl #3   // arr[i]
+    ldr     x12, [x11]   // load elem
+    str     x12, [sp, #48]   // save left for cmp
     ldr     x13, [sp, #0]   // load arr
-    ldr     x14, [sp, #24]   // load j
+    ldr     x14, [sp, #24]   // load min
     ldr     x15, [x13]   // deref ptr → base real de arr
     add     x9, x15, x14, lsl #3   // arr[i]
     ldr     x10, [x9]   // load elem
-    ldr     x11, [sp, #0]   // load arr
-    ldr     x12, [sp, #16]   // load min
-    ldr     x13, [x11]   // deref ptr → base real de arr
-    add     x14, x13, x12, lsl #3   // arr[i]
-    ldr     x15, [x14]   // load elem
-    cmp     x10, x15
+    ldr     x11, [sp, #48]   // reload left for cmp
+    cmp     x11, x10
     b.lt    rel_true_13
-    mov     x9, #0
+    mov     x12, #0
     b       rel_end_14
 rel_true_13:
-    mov     x9, #1
+    mov     x12, #1
 rel_end_14:
-    cmp     x9, #0
+    cmp     x12, #0
     b.eq    if_end_12
-    ldr     x10, [sp, #24]   // load j
-    str     x10, [sp, #16]   // min = val
+    ldr     x13, [sp, #32]   // load j
+    str     x13, [sp, #24]   // min = val
 if_end_12:
 for_update_7:
-    ldr     x11, [sp, #24]   // load j
-    add     x12, x11, #1   // j++
-    str     x12, [sp, #24]   // store j
+    ldr     x14, [sp, #32]   // load j
+    add     x15, x14, #1   // j++
+    str     x15, [sp, #32]   // store j
     b       for_start_6
 for_end_8:
-    ldr     x13, [sp, #16]   // load min
-    ldr     x14, [sp, #8]   // load i
-    cmp     x13, x14
+    ldr     x9, [sp, #24]   // load min
+    ldr     x10, [sp, #8]   // load i
+    cmp     x9, x10
     b.ne    eq_true_17
-    mov     x15, #0
+    mov     x11, #0
     b       eq_end_18
 eq_true_17:
-    mov     x15, #1
+    mov     x11, #1
 eq_end_18:
-    cmp     x15, #0
+    cmp     x11, #0
     b.eq    if_end_16
-    ldr     x9, [sp, #0]   // load arr
-    ldr     x10, [sp, #8]   // load i
-    ldr     x11, [x9]   // deref ptr → base real de arr
-    add     x12, x11, x10, lsl #3   // arr[i]
-    ldr     x13, [x12]   // load elem
-    str     x13, [sp, #32]   // decl temp
-    ldr     x14, [sp, #0]   // load arr
-    ldr     x15, [sp, #16]   // load min
-    ldr     x9, [x14]   // deref ptr → base real de arr
-    add     x10, x9, x15, lsl #3   // arr[i]
-    ldr     x11, [x10]   // load elem
-    ldr     x12, [sp, #8]   // índice i
-    ldr     x13, [sp, #0]   // load ptr → &arr_caller
-    ldr     x15, [x13]             // deref → base real de arr
-    add     x14, x15, x12, lsl #3   // addr arr[i]
-    str     x11, [x14]   // arr[i] = val
-    ldr     x9, [sp, #32]   // load temp
-    ldr     x10, [sp, #16]   // índice min
-    ldr     x11, [sp, #0]   // load ptr → &arr_caller
-    ldr     x13, [x11]             // deref → base real de arr
-    add     x12, x13, x10, lsl #3   // addr arr[i]
-    str     x9, [x12]   // arr[i] = val
+    ldr     x12, [sp, #0]   // load arr
+    ldr     x13, [sp, #8]   // load i
+    ldr     x14, [x12]   // deref ptr → base real de arr
+    add     x15, x14, x13, lsl #3   // arr[i]
+    ldr     x9, [x15]   // load elem
+    str     x9, [sp, #48]   // decl temp
+    ldr     x10, [sp, #0]   // load arr
+    ldr     x11, [sp, #24]   // load min
+    ldr     x12, [x10]   // deref ptr → base real de arr
+    add     x13, x12, x11, lsl #3   // arr[i]
+    ldr     x14, [x13]   // load elem
+    ldr     x15, [sp, #8]   // índice i
+    ldr     x9, [sp, #0]   // load ptr → &arr_caller
+    ldr     x11, [x9]             // deref → base real de arr
+    add     x10, x11, x15, lsl #3   // addr arr[i]
+    str     x14, [x10]   // arr[i] = val
+    ldr     x12, [sp, #48]   // load temp
+    ldr     x13, [sp, #24]   // índice min
+    ldr     x14, [sp, #0]   // load ptr → &arr_caller
+    ldr     x9, [x14]             // deref → base real de arr
+    add     x15, x9, x13, lsl #3   // addr arr[i]
+    str     x12, [x15]   // arr[i] = val
 if_end_16:
 for_update_2:
-    ldr     x14, [sp, #8]   // load i
-    add     x15, x14, #1   // i++
-    str     x15, [sp, #8]   // store i
+    ldr     x10, [sp, #8]   // load i
+    add     x11, x10, #1   // i++
+    str     x11, [sp, #8]   // store i
     b       for_start_1
 for_end_3:
 ordenamientoSeleccion_end:
@@ -960,88 +963,94 @@ intercalacion:
     str     x9, [sp, #8]   // decl i
 for_start_36:
     ldr     x10, [sp, #8]   // load i
+    str     x10, [sp, #16]   // save left for cmp
     mov     x11, #5
-    cmp     x10, x11
+    ldr     x12, [sp, #16]   // reload left for cmp
+    cmp     x12, x11
     b.lt    rel_true_39
-    mov     x12, #0
+    mov     x13, #0
     b       rel_end_40
 rel_true_39:
-    mov     x12, #1
+    mov     x13, #1
 rel_end_40:
-    cmp     x12, #0
+    cmp     x13, #0
     b.eq    for_end_38
-    mov     x13, #0
-    str     x13, [sp, #16]   // decl j
+    mov     x14, #0
+    str     x14, [sp, #24]   // decl j
 for_start_41:
-    ldr     x14, [sp, #16]   // load j
-    mov     x15, #5
-    ldr     x9, [sp, #8]   // load i
-    sub     x10, x15, x9
-    cmp     x14, x10
+    ldr     x15, [sp, #24]   // load j
+    str     x15, [sp, #32]   // save left for cmp
+    mov     x9, #5
+    ldr     x10, [sp, #8]   // load i
+    sub     x11, x9, x10
+    ldr     x12, [sp, #32]   // reload left for cmp
+    cmp     x12, x11
     b.lt    rel_true_44
-    mov     x11, #0
+    mov     x13, #0
     b       rel_end_45
 rel_true_44:
-    mov     x11, #1
+    mov     x13, #1
 rel_end_45:
-    cmp     x11, #0
+    cmp     x13, #0
     b.eq    for_end_43
+    ldr     x14, [sp, #0]   // load arr
+    ldr     x15, [sp, #24]   // load j
+    ldr     x9, [x14]   // deref ptr → base real de arr
+    add     x10, x9, x15, lsl #3   // arr[i]
+    ldr     x11, [x10]   // load elem
+    str     x11, [sp, #40]   // save left for cmp
     ldr     x12, [sp, #0]   // load arr
-    ldr     x13, [sp, #16]   // load j
-    ldr     x14, [x12]   // deref ptr → base real de arr
-    add     x15, x14, x13, lsl #3   // arr[i]
-    ldr     x9, [x15]   // load elem
-    ldr     x10, [sp, #0]   // load arr
-    ldr     x11, [sp, #16]   // load j
-    mov     x12, #1
-    add     x13, x11, x12
-    ldr     x14, [x10]   // deref ptr → base real de arr
-    add     x15, x14, x13, lsl #3   // arr[i]
-    ldr     x9, [x15]   // load elem
-    cmp     x9, x9
+    ldr     x13, [sp, #24]   // load j
+    mov     x14, #1
+    add     x15, x13, x14
+    ldr     x9, [x12]   // deref ptr → base real de arr
+    add     x10, x9, x15, lsl #3   // arr[i]
+    ldr     x11, [x10]   // load elem
+    ldr     x12, [sp, #40]   // reload left for cmp
+    cmp     x12, x11
     b.gt    rel_true_48
-    mov     x10, #0
+    mov     x13, #0
     b       rel_end_49
 rel_true_48:
-    mov     x10, #1
+    mov     x13, #1
 rel_end_49:
-    cmp     x10, #0
+    cmp     x13, #0
     b.eq    if_end_47
-    ldr     x11, [sp, #0]   // load arr
-    ldr     x12, [sp, #16]   // load j
-    ldr     x13, [x11]   // deref ptr → base real de arr
-    add     x14, x13, x12, lsl #3   // arr[i]
-    ldr     x15, [x14]   // load elem
-    str     x15, [sp, #24]   // decl temp
-    ldr     x9, [sp, #0]   // load arr
-    ldr     x10, [sp, #16]   // load j
-    mov     x11, #1
-    add     x12, x10, x11
-    ldr     x13, [x9]   // deref ptr → base real de arr
-    add     x14, x13, x12, lsl #3   // arr[i]
-    ldr     x15, [x14]   // load elem
-    ldr     x9, [sp, #16]   // índice j
-    ldr     x10, [sp, #0]   // load ptr → &arr_caller
-    ldr     x12, [x10]             // deref → base real de arr
-    add     x11, x12, x9, lsl #3   // addr arr[i]
-    str     x15, [x11]   // arr[i] = val
-    ldr     x13, [sp, #24]   // load temp
-    mov     x14, #0   // índice desconocido
-    ldr     x15, [sp, #0]   // load ptr → &arr_caller
-    ldr     x10, [x15]             // deref → base real de arr
-    add     x9, x10, x14, lsl #3   // addr arr[i]
-    str     x13, [x9]   // arr[i] = val
+    ldr     x14, [sp, #0]   // load arr
+    ldr     x15, [sp, #24]   // load j
+    ldr     x9, [x14]   // deref ptr → base real de arr
+    add     x10, x9, x15, lsl #3   // arr[i]
+    ldr     x11, [x10]   // load elem
+    str     x11, [sp, #48]   // decl temp
+    ldr     x12, [sp, #0]   // load arr
+    ldr     x13, [sp, #24]   // load j
+    mov     x14, #1
+    add     x15, x13, x14
+    ldr     x9, [x12]   // deref ptr → base real de arr
+    add     x10, x9, x15, lsl #3   // arr[i]
+    ldr     x11, [x10]   // load elem
+    ldr     x12, [sp, #24]   // índice j
+    ldr     x13, [sp, #0]   // load ptr → &arr_caller
+    ldr     x15, [x13]             // deref → base real de arr
+    add     x14, x15, x12, lsl #3   // addr arr[i]
+    str     x11, [x14]   // arr[i] = val
+    ldr     x9, [sp, #48]   // load temp
+    mov     x10, #0   // índice desconocido
+    ldr     x11, [sp, #0]   // load ptr → &arr_caller
+    ldr     x13, [x11]             // deref → base real de arr
+    add     x12, x13, x10, lsl #3   // addr arr[i]
+    str     x9, [x12]   // arr[i] = val
 if_end_47:
 for_update_42:
-    ldr     x11, [sp, #16]   // load j
-    add     x12, x11, #1   // j++
-    str     x12, [sp, #16]   // store j
+    ldr     x14, [sp, #24]   // load j
+    add     x15, x14, #1   // j++
+    str     x15, [sp, #24]   // store j
     b       for_start_41
 for_end_43:
 for_update_37:
-    ldr     x13, [sp, #8]   // load i
-    add     x14, x13, #1   // i++
-    str     x14, [sp, #8]   // store i
+    ldr     x9, [sp, #8]   // load i
+    add     x10, x9, #1   // i++
+    str     x10, [sp, #8]   // store i
     b       for_start_36
 for_end_38:
 intercalacion_end:

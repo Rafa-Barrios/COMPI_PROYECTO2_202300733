@@ -469,7 +469,13 @@ class CodeGenerator extends GolampiBaseVisitor
                 $this->localVars[$varName] = $offset;
                 $this->environment->define($varName, $offset, $line, $col);
                 $this->emit("    str     {$reg}, [sp, #{$offset}]   // decl {$varName}");
-                $inferredType = $this->inferTypeFromExpr($ctx->exprList()->expression()[$i] ?? null);
+                $exprText = $ctx->exprList()->expression()[$i]?->getText() ?? '';
+                if (preg_match('/^\[(\d+)\]/', $exprText, $matches)) {
+                    // Es un array literal: registrar tamaño declarado
+                    $inferredType = "array:" . (int)$matches[1];
+                } else {
+                    $inferredType = $this->inferTypeFromExpr($ctx->exprList()->expression()[$i] ?? null);
+                }
                 $this->varTypes[$varName] = $inferredType;
                 \SymbolTable::add($varName, $inferredType, $this->currentScope, "—", $line, $col);
                 $hasNew = true;
@@ -1219,15 +1225,21 @@ class CodeGenerator extends GolampiBaseVisitor
         }
 
         $result = $this->visit($adds[0]);
-
         for ($i = 1; $i < count($adds); $i++) {
+            // Guardar left antes de evaluar right (puede sobreescribir registros)
+            $saveSlot = $this->allocStack();
+            $this->emit("    str     {$result}, [sp, #{$saveSlot}]   // save left for cmp");
+
             $right   = $this->visit($adds[$i]);
             $op      = $ctx->getChild(2 * $i - 1)->getText();
+
+            $leftReg = $this->nextReg();
+            $this->emit("    ldr     {$leftReg}, [sp, #{$saveSlot}]   // reload left for cmp");
+
             $destReg = $this->nextReg();
             $labelT  = $this->newLabel("rel_true");
             $labelE  = $this->newLabel("rel_end");
-
-            $this->emit("    cmp     {$result}, {$right}");
+            $this->emit("    cmp     {$leftReg}, {$right}");
 
             switch ($op) {
                 case ">":  $this->emit("    b.gt    {$labelT}"); break;
