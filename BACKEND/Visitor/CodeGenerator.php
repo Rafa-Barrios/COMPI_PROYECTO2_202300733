@@ -1196,6 +1196,38 @@ class CodeGenerator extends GolampiBaseVisitor
     */
     public function visitExpression($ctx)
     {
+        // Operador ternario: cond ? e1 : e2
+        // Cuando hay ternario: getChildCount() == 5
+        // children: [logicalOr] [?] [expression] [:] [expression]
+        if ($ctx->getChildCount() === 5 && $ctx->getChild(1)->getText() === '?') {
+            $labelFalse = $this->newLabel("tern_false");
+            $labelEnd   = $this->newLabel("tern_end");
+            $resultSlot = $this->allocStack(); // slot fijo para el resultado
+
+            // ── Evaluar condición (logicalOr) ─────────────────────
+            $condReg = $this->visit($ctx->logicalOr());
+            $this->emit("    cmp     {$condReg}, #0");
+            $this->emit("    b.eq    {$labelFalse}   // ternario: falso → rama else");
+
+            // ── Rama verdadera ────────────────────────────────────
+            $trueReg = $this->visit($ctx->expression(0));
+            $this->emit("    str     {$trueReg}, [sp, #{$resultSlot}]   // ternario: guardar true");
+            $this->emit("    b       {$labelEnd}");
+
+            // ── Rama falsa ────────────────────────────────────────
+            $this->emitLabel($labelFalse);
+            $falseReg = $this->visit($ctx->expression(1));
+            $this->emit("    str     {$falseReg}, [sp, #{$resultSlot}]   // ternario: guardar false");
+
+            // ── Cargar resultado ──────────────────────────────────
+            $this->emitLabel($labelEnd);
+            $resultReg = $this->nextReg();
+            $this->emit("    ldr     {$resultReg}, [sp, #{$resultSlot}]   // ternario: resultado");
+
+            return $resultReg;
+        }
+
+        // Expresión normal (sin ternario)
         return $this->visit($ctx->logicalOr());
     }
 
@@ -1632,7 +1664,6 @@ class CodeGenerator extends GolampiBaseVisitor
                     $this->emit("    ldr     {$loadReg}, [{$addrReg}]   // load elem");
                     $value = $loadReg;
                 }
-                $varName = null;
                 $varName = null; 
 
             // ── ++ / -- ────────────────────────────────────────

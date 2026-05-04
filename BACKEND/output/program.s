@@ -11,15 +11,6 @@ __str_true_len = . - __str_true
 __str_false: .ascii "false"
 __str_false_len = . - __str_false
 __newline: .ascii "\n"
-str_0: .asciz "=== INICIO DE CALIFICACION: ARREGLOS ==="
-str_1: .asciz "\n--- 5.1 DECLARACION MULTIDIMENSIONAL ---"
-str_2: .asciz "Matriz no inicializada [1][1]:"
-__space: .ascii " "
-str_3: .asciz "Matriz inicializada [0][0]:"
-str_4: .asciz "\n--- 5.2 ACCESO Y MODIFICACION MULTIDIMENSIONAL ---"
-str_5: .asciz "Original matrizNoInit[0][1]:"
-str_6: .asciz "Modificado matrizNoInit[0][1]:"
-str_7: .asciz "\n=== FIN DE CALIFICACION: ARREGLOS ==="
 
 .section .text
 .align 2
@@ -31,146 +22,67 @@ _start:
     mov     x8, #93        // syscall exit
     svc     #0
 
+# ── Función: f ──────────────────────────
+f:
+    stp     x29, x30, [sp, #-16]!   // salvar fp y lr
+    mov     x29, sp
+    sub     sp, sp, #496   // espacio variables locales
+    mov     x9, #1
+    // fmt.Println arg[0] tipo=int
+    mov     x0, x9
+    bl      __print_int
+    bl      __print_newline
+    mov     x10, #1
+    mov     x0, x10   // return value
+    b       f_end   // return
+f_end:
+    add     sp, sp, #496   // liberar variables locales
+    ldp     x29, x30, [sp], #16      // restaurar fp y lr
+    ret
+
+# ── Función: g ──────────────────────────
+g:
+    stp     x29, x30, [sp, #-16]!   // salvar fp y lr
+    mov     x29, sp
+    sub     sp, sp, #496   // espacio variables locales
+    mov     x9, #2
+    // fmt.Println arg[0] tipo=int
+    mov     x0, x9
+    bl      __print_int
+    bl      __print_newline
+    mov     x10, #2
+    mov     x0, x10   // return value
+    b       g_end   // return
+g_end:
+    add     sp, sp, #496   // liberar variables locales
+    ldp     x29, x30, [sp], #16      // restaurar fp y lr
+    ret
+
 # ── Función: main ──────────────────────────
 main:
     stp     x29, x30, [sp, #-16]!   // salvar fp y lr
     mov     x29, sp
     sub     sp, sp, #496   // espacio variables locales
-    adrp    x9, str_0
-    add     x9, x9, :lo12:str_0
-    // fmt.Println arg[0] tipo=string
-    mov     x0, x9         // str addr
-    mov     x1, #40      // str len
-    bl      __print_str
-    bl      __print_newline
-    adrp    x10, str_1
-    add     x10, x10, :lo12:str_1
-    // fmt.Println arg[0] tipo=string
-    mov     x0, x10         // str addr
-    mov     x1, #41      // str len
-    bl      __print_str
-    bl      __print_newline
-    str     xzr, [sp, #0]   // matrizNoInit[0] = 0
-    str     xzr, [sp, #8]   // matrizNoInit[1] = 0
-    str     xzr, [sp, #16]   // matrizNoInit[2] = 0
-    str     xzr, [sp, #24]   // matrizNoInit[3] = 0
-    add     x11, sp, #0   // fila 0 de matrizNoInit
-    str     x11, [sp, #32]   // rowptr[0]
-    add     x12, sp, #16   // fila 1 de matrizNoInit
-    str     x12, [sp, #40]   // rowptr[1]
-    add     x13, sp, #32   // base ptrs matrizNoInit
-    str     x13, [sp, #48]   // ptr matrizNoInit
-    mov     x14, #1
-    str     x14, [sp, #72]   // sub[0]
-    mov     x15, #2
-    str     x15, [sp, #80]   // sub[1]
-    add     x9, sp, #72   // base sub-array
-    str     x9, [sp, #56]   // arr[0]
-    mov     x10, #3
-    str     x10, [sp, #88]   // sub[0]
-    mov     x11, #4
-    str     x11, [sp, #96]   // sub[1]
-    add     x12, sp, #88   // base sub-array
-    str     x12, [sp, #64]   // arr[1]
-    add     x13, sp, #56   // base del array
-    str     x13, [sp, #104]   // decl matrizInit
-    adrp    x14, str_2
-    add     x14, x14, :lo12:str_2
-    // fmt.Println arg[0] tipo=string
-    mov     x0, x14         // str addr
-    mov     x1, #30      // str len
-    bl      __print_str
-    bl      __print_space
-    ldr     x15, [sp, #48]   // load matrizNoInit
-    mov     x9, #1
-    mov     x10, x15   // base de matrizNoInit
-    add     x11, x10, x9, lsl #3   // matrizNoInit[i]
-    mov     x13, #1
-    ldr     x14, [x11]   // deref ptr sub-array
-    add     x15, x14, x13, lsl #3   // [i]
-    ldr     x9, [x15]   // load elem
-    // fmt.Println arg[1] tipo=int
-    mov     x0, x9
+    mov     x9, #1   // true
+    cmp     x9, #0
+    b.eq    tern_false_0   // ternario: falso → rama else
+    mov     x10, #0   // ref a f
+    bl      f   // call f
+    mov     x11, x0   // return value
+    str     x11, [sp, #0]   // ternario: guardar true
+    b       tern_end_1
+tern_false_0:
+    mov     x12, #0   // ref a g
+    bl      g   // call g
+    mov     x13, x0   // return value
+    str     x13, [sp, #0]   // ternario: guardar false
+tern_end_1:
+    ldr     x14, [sp, #0]   // ternario: resultado
+    str     x14, [sp, #8]   // decl r
+    ldr     x15, [sp, #8]   // load r
+    // fmt.Println arg[0] tipo=int
+    mov     x0, x15
     bl      __print_int
-    bl      __print_newline
-    adrp    x10, str_3
-    add     x10, x10, :lo12:str_3
-    // fmt.Println arg[0] tipo=string
-    mov     x0, x10         // str addr
-    mov     x1, #27      // str len
-    bl      __print_str
-    bl      __print_space
-    ldr     x11, [sp, #104]   // load matrizInit
-    mov     x12, #0
-    mov     x13, x11   // base de matrizInit
-    add     x14, x13, x12, lsl #3   // matrizInit[i]
-    mov     x9, #0
-    ldr     x10, [x14]   // deref ptr sub-array
-    add     x11, x10, x9, lsl #3   // [i]
-    ldr     x12, [x11]   // load elem
-    // fmt.Println arg[1] tipo=int
-    mov     x0, x12
-    bl      __print_int
-    bl      __print_newline
-    adrp    x13, str_4
-    add     x13, x13, :lo12:str_4
-    // fmt.Println arg[0] tipo=string
-    mov     x0, x13         // str addr
-    mov     x1, #51      // str len
-    bl      __print_str
-    bl      __print_newline
-    adrp    x14, str_5
-    add     x14, x14, :lo12:str_5
-    // fmt.Println arg[0] tipo=string
-    mov     x0, x14         // str addr
-    mov     x1, #28      // str len
-    bl      __print_str
-    bl      __print_space
-    ldr     x15, [sp, #48]   // load matrizNoInit
-    mov     x9, #0
-    mov     x10, x15   // base de matrizNoInit
-    add     x11, x10, x9, lsl #3   // matrizNoInit[i]
-    mov     x13, #1
-    ldr     x14, [x11]   // deref ptr sub-array
-    add     x15, x14, x13, lsl #3   // [i]
-    ldr     x9, [x15]   // load elem
-    // fmt.Println arg[1] tipo=int
-    mov     x0, x9
-    bl      __print_int
-    bl      __print_newline
-    mov     x10, #77
-    mov     x11, #0   // índice desconocido
-    ldr     x12, [sp, #48]   // base ptrs matrizNoInit
-    add     x13, x12, x11, lsl #3   // &rowptr[0]
-    ldr     x14, [x13]   // rowptr → base fila
-    mov     x15, #1   // col idx
-    add     x9, x14, x15, lsl #3   // addr [row][col]
-    str     x10, [x9]   // matrizNoInit[row][col] = val
-    adrp    x10, str_6
-    add     x10, x10, :lo12:str_6
-    // fmt.Println arg[0] tipo=string
-    mov     x0, x10         // str addr
-    mov     x1, #30      // str len
-    bl      __print_str
-    bl      __print_space
-    ldr     x11, [sp, #48]   // load matrizNoInit
-    mov     x12, #0
-    mov     x13, x11   // base de matrizNoInit
-    add     x14, x13, x12, lsl #3   // matrizNoInit[i]
-    mov     x9, #1
-    ldr     x10, [x14]   // deref ptr sub-array
-    add     x11, x10, x9, lsl #3   // [i]
-    ldr     x12, [x11]   // load elem
-    // fmt.Println arg[1] tipo=int
-    mov     x0, x12
-    bl      __print_int
-    bl      __print_newline
-    adrp    x13, str_7
-    add     x13, x13, :lo12:str_7
-    // fmt.Println arg[0] tipo=string
-    mov     x0, x13         // str addr
-    mov     x1, #38      // str len
-    bl      __print_str
     bl      __print_newline
 main_end:
     add     sp, sp, #496   // liberar variables locales
@@ -280,19 +192,6 @@ __print_newline:
     mov     x1, x0
     mov     x0, #1
     mov     x8, #64
-    svc     #0
-    ldp     x29, x30, [sp], #16
-    ret
-
-# ── Helper: __print_space ────────────────────────
-__print_space:
-    stp     x29, x30, [sp, #-16]!
-    mov     x29, sp
-    adrp    x1, __space
-    add     x1, x1, :lo12:__space
-    mov     x0, #1             // stdout
-    mov     x2, #1             // len
-    mov     x8, #64            // syscall write
     svc     #0
     ldp     x29, x30, [sp], #16
     ret

@@ -164,7 +164,8 @@ returnStmt
 ////////////////////
 
 expression
-    : logicalOr
+    : logicalOr '?' expression ':' expression
+    | logicalOr
     ;
 
 logicalOr
