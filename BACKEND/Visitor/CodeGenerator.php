@@ -405,23 +405,42 @@ class CodeGenerator extends GolampiBaseVisitor
 
                     if ($totalSlots > 1) {
                         // Array multidimensional/grande: datos en slots contiguos + slot puntero al final
-                        $dataOffset = $offset; // primer slot ya reservado por allocStack() del foreach
-                        for ($s = 1; $s < $totalSlots; $s++) {
-                            $this->allocStack(); // reservar slots adicionales de datos
+                        // Extraer dimensiones del tipo: [2][2]int32 → [2, 2]
+                        preg_match_all('/\[(\d+)\]/', $typeText, $dimMatches);
+                        $dims = array_map('intval', $dimMatches[1]);
+                        $rows = $dims[0];
+                        $cols = isset($dims[1]) ? $dims[1] : 1;
+
+                        // Reservar datos de cada fila (rows * cols slots)
+                        $dataOffset = $offset; // ya reservado
+                        for ($s = 1; $s < $rows * $cols; $s++) {
+                            $this->allocStack();
                         }
                         // Inicializar datos a cero
-                        for ($s = 0; $s < $totalSlots; $s++) {
+                        for ($s = 0; $s < $rows * $cols; $s++) {
                             $slotOff = $dataOffset + ($s * 8);
                             $this->emit("    str     xzr, [sp, #{$slotOff}]   // {$varName}[{$s}] = 0");
                         }
-                        // Slot puntero: igual que arrayLiteral, guarda la dirección base
-                        $ptrSlot = $this->allocStack();
-                        $ptrReg  = $this->nextReg();
-                        $this->emit("    add     {$ptrReg}, sp, #{$dataOffset}   // base de {$varName}");
-                        $this->emit("    str     {$ptrReg}, [sp, #{$ptrSlot}]   // ptr {$varName}");
-                        // Redirigir localVars al slot puntero (consistente con arrayLiteral)
-                        $this->localVars[$varName] = $ptrSlot;
-                        $this->varTypes[$varName]  = "array:" . $totalSlots;
+                        // Reservar slots para los punteros de fila
+                        $rowPtrsOffset = $this->allocStack();
+                        for ($r = 1; $r < $rows; $r++) {
+                            $this->allocStack();
+                        }
+                        // Inicializar punteros de fila
+                        for ($r = 0; $r < $rows; $r++) {
+                            $rowDataOff = $dataOffset + ($r * $cols * 8);
+                            $rowPtrOff  = $rowPtrsOffset + ($r * 8);
+                            $ptrReg = $this->nextReg();
+                            $this->emit("    add     {$ptrReg}, sp, #{$rowDataOff}   // fila {$r} de {$varName}");
+                            $this->emit("    str     {$ptrReg}, [sp, #{$rowPtrOff}]   // rowptr[{$r}]");
+                        }
+                        // Slot principal: puntero al array de punteros de fila
+                        $mainSlot = $this->allocStack();
+                        $mainReg  = $this->nextReg();
+                        $this->emit("    add     {$mainReg}, sp, #{$rowPtrsOffset}   // base ptrs {$varName}");
+                        $this->emit("    str     {$mainReg}, [sp, #{$mainSlot}]   // ptr {$varName}");
+                        $this->localVars[$varName] = $mainSlot;
+                        $this->varTypes[$varName]  = "array:" . $rows;
                     } else {
                         // Variable simple: valor por defecto según tipo
                         $typeName = $this->resolveTypeName($ctx->type());
@@ -517,8 +536,11 @@ class CodeGenerator extends GolampiBaseVisitor
                 $this->emit("    str     {$reg}, [sp, #{$offset}]   // decl {$varName}");
                 $exprText = $ctx->exprList()->expression()[$i]?->getText() ?? '';
                 if (preg_match('/^\[(\d+)\]/', $exprText, $matches)) {
-                    // Es un array literal: registrar tamaño declarado
                     $inferredType = "array:" . (int)$matches[1];
+                    // Si tiene sub-arrays {{...},{...}}, marcarlo como array 2D con punteros
+                    if (str_contains($exprText, '},{')) {
+                        $this->varTypes[$varName . '_is2d'] = true;
+                    }
                 } else {
                     $inferredType = $this->inferTypeFromExpr($ctx->exprList()->expression()[$i] ?? null);
                 }
@@ -990,22 +1012,35 @@ class CodeGenerator extends GolampiBaseVisitor
                 // Extraer todos los índices del texto: arr[0][1] → [0, 1]
                 preg_match_all('/\[([^\]]+)\]/', $lhsText, $idxMatches);
                 $allIdxTexts = $idxMatches[1] ?? [];
-                // Sumar los índices adicionales al idxReg
-                for ($ki = 1; $ki < count($allIdxTexts); $ki++) {
-                    $extraText = $allIdxTexts[$ki];
-                    $extraReg  = $this->nextReg();
-                    if (is_numeric($extraText)) {
-                        $this->emit("    mov     {$extraReg}, #{$extraText}   // idx adicional");
-                    } elseif (isset($this->localVars[$extraText])) {
-                        $extraOff = $this->localVars[$extraText];
-                        $this->emit("    ldr     {$extraReg}, [sp, #{$extraOff}]   // idx adicional {$extraText}");
-                    } else {
-                        $this->emit("    mov     {$extraReg}, #0   // idx adicional desconocido");
-                    }
-                    $sumReg = $this->nextReg();
-                    $this->emit("    add     {$sumReg}, {$idxReg}, {$extraReg}   // suma indices");
-                    $idxReg = $sumReg;
+
+                // Para arrays 2D con punteros: deref rowptr y usar segundo índice
+                // Paso 1: cargar rowptr[firstIdx] → dirección de la fila
+                $rowIdxReg = $idxReg; // ya tiene el primer índice
+                $rowPtrBase = $this->nextReg();
+                $rowPtrAddr = $this->nextReg();
+                $rowBase    = $this->nextReg();
+                $this->emit("    ldr     {$rowPtrBase}, [sp, #{$baseOffset}]   // base ptrs {$arrName}");
+                $this->emit("    add     {$rowPtrAddr}, {$rowPtrBase}, {$rowIdxReg}, lsl #3   // &rowptr[{$allIdxTexts[0]}]");
+                $this->emit("    ldr     {$rowBase}, [{$rowPtrAddr}]   // rowptr → base fila");
+
+                // Paso 2: calcular dirección con segundo índice
+                $colText = $allIdxTexts[1] ?? '0';
+                $colReg  = $this->nextReg();
+                if (is_numeric($colText)) {
+                    $this->emit("    mov     {$colReg}, #{$colText}   // col idx");
+                } elseif (isset($this->localVars[$colText])) {
+                    $colOff = $this->localVars[$colText];
+                    $this->emit("    ldr     {$colReg}, [sp, #{$colOff}]   // col idx {$colText}");
+                } else {
+                    $this->emit("    mov     {$colReg}, #0   // col idx default");
                 }
+
+                $finalAddr = $this->nextReg();
+                $this->emit("    add     {$finalAddr}, {$rowBase}, {$colReg}, lsl #3   // addr [row][col]");
+
+                // Guardar el valor directamente en la dirección final
+                $this->emit("    str     {$rightReg}, [{$finalAddr}]   // {$arrName}[row][col] = val");
+                return null;
             }
 
             // REEMPLAZAR el bloque completo de cálculo de base (donde están $baseReg y $addrReg):
@@ -1554,9 +1589,27 @@ class CodeGenerator extends GolampiBaseVisitor
                     // Array local: $value ya tiene la base del array
                     $this->emit("    mov     {$baseReg}, {$value}   // base de {$varName}");
                 } else {
-                    // Acceso encadenado mat[r][c]: $value ya es la dirección del elemento anterior
-                    // Para 2D: el primer acceso devuelve sp+offset_fila, el segundo indexa desde ahí
-                    $this->emit("    mov     {$baseReg}, {$value}   // base encadenada");
+                    // Acceso encadenado: verificar si el array original contiene punteros a sub-arrays
+                    // o si es un array plano de datos directos
+                    $originalVar = $ctx->primary()->ID() !== null ? $ctx->primary()->ID()->getText() : null;
+                    if ($originalVar !== null &&
+                        isset($this->varTypes[$originalVar]) &&
+                        str_starts_with($this->varTypes[$originalVar], 'array:') &&
+                        isset($this->localVars[$originalVar])) {
+                        // Verificar si el primer elemento es un puntero (array de punteros a sub-arrays)
+                        // matrizInit: los elementos son punteros → hacer ldr
+                        // matrizNoInit: los elementos son datos directos → hacer ldr igualmente
+                        // La diferencia: matrizInit fue creada con {{1,2},{3,4}} → tiene sub-punteros
+                        // matrizNoInit fue creada con default → datos planos
+                        // Distinguir por varTypes: si tiene "ptr2d" es array de punteros
+                        if (isset($this->varTypes[$originalVar . '_is2d'])) {
+                            $this->emit("    ldr     {$baseReg}, [{$value}]   // deref ptr sub-array");
+                        } else {
+                            $this->emit("    mov     {$baseReg}, {$value}   // base encadenada plana");
+                        }
+                    } else {
+                        $this->emit("    ldr     {$baseReg}, [{$value}]   // deref ptr sub-array");
+                    }
                 }
 
                 $this->emit("    add     {$addrReg}, {$baseReg}, {$idxReg}, lsl #3   // {$varName}[i]");
@@ -1769,31 +1822,38 @@ class CodeGenerator extends GolampiBaseVisitor
         // Almacenar cada elemento en su slot
         foreach ($elements as $i => $elem) {
             // Buscar ArrayLiteral en hasta 2 niveles de profundidad
-            $innerLiteral = null;
-            for ($ci = 0; $ci < $elem->getChildCount(); $ci++) {
-                $ch = $elem->getChild($ci);
-                if (str_contains(get_class($ch), 'ArrayLiteral')) {
-                    $innerLiteral = $ch;
-                    break;
-                }
-                for ($cj = 0; $cj < $ch->getChildCount(); $cj++) {
-                    $gch = $ch->getChild($cj);
-                    if (str_contains(get_class($gch), 'ArrayLiteral')) {
-                        $innerLiteral = $gch;
-                        break 2;
-                    }
-                }
-            }
-
-            if ($innerLiteral !== null) {
-                $valReg = $this->visit($innerLiteral);
-            } elseif ($elem->expression() !== null) {
+            if ($elem->expression() !== null) {
+                // Elemento simple: expresión normal
                 $valReg = $this->visit($elem->expression());
+            } elseif ($elem->exprList() !== null) {
+                // Elemento es {1,2} o {3,4} — sub-array inline
+                $subExprs = $elem->exprList()->expression();
+                $subCount = count($subExprs);
+                // Reservar slots para los elementos del sub-array
+                $subFirst = $this->allocStack();
+                for ($si = 1; $si < $subCount; $si++) {
+                    $this->allocStack();
+                }
+                // Guardar cada elemento del sub-array
+                foreach ($subExprs as $si => $subExpr) {
+                    $subReg = $this->visit($subExpr);
+                    $subOff = $subFirst + ($si * 8);
+                    $this->emit("    str     {$subReg}, [sp, #{$subOff}]   // sub[{$si}]");
+                }
+                // Retornar la dirección base del sub-array
+                $valReg = $this->nextReg();
+                $this->emit("    add     {$valReg}, sp, #{$subFirst}   // base sub-array");
             } else {
                 $valReg = $this->nextReg();
                 $this->emit("    mov     {$valReg}, #0   // elem default");
             }
+
             $slotOff = $firstSlot + ($i * 8);
+
+            if (empty($valReg)) {
+                $valReg = "xzr";
+            }
+            
             $this->emit("    str     {$valReg}, [sp, #{$slotOff}]   // arr[{$i}]");
         }
 
